@@ -14,7 +14,7 @@ func LoadFullBusData(ip string) *models.BusContext {
 		SELECT b.id as bus_id, b.route_number as route_number 
 		FROM devices d
 		JOIN buses b ON d.bus_id = b.id
-		WHERE d.ip = $1 AND d.type = 'teltonic' 
+		WHERE d.rtsp_link = $1 AND d.type = 'teltonic' 
 		LIMIT 1`, ip)
 
 	if err != nil {
