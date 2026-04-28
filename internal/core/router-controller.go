@@ -10,6 +10,7 @@ const (
 )
 
 func CheckDeviation(lat, lon float64, routePoints [][2]float64) bool {
+
 	if len(routePoints) < 2 {
 		return false
 	}
