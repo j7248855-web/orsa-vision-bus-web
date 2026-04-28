@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"orsavisionweb/internal/core/ws"
 	"orsavisionweb/internal/database"
 	"orsavisionweb/internal/handler"
 	routers "orsavisionweb/routing"
@@ -17,6 +18,7 @@ import (
 )
 
 func main() {
+	b := ws.NewBroadcaster()
 	err := godotenv.Load("../../configs/database.env")
 	if err != nil {
 		log.Println("Не удалось прочитать .ENV файл", err)
@@ -29,7 +31,10 @@ func main() {
 		lis, _ := net.Listen("tcp", ":8585")
 		fmt.Println("TCP соединение создано, ожидаю GPS")
 		servGRPC := grpc.NewServer()
-		gps_pt.RegisterGPSTrackerServer(servGRPC, &handler.GPSServer{})
+		gps_pt.RegisterGPSTrackerServer(servGRPC, &handler.GPSServer{
+			DB:    dbConn,
+			Conns: b,
+		})
 		cam_pt.RegisterCameraControlServer(servGRPC, &handler.Server{DB: dbConn})
 		servGRPC.Serve(lis)
 	}()
@@ -42,5 +47,6 @@ func main() {
 	serv.Use(cors.New(config))
 	//Подключение роутеров
 	routers.Routing(serv, dbConn)
+	routers.WSRoute(serv, b)
 	serv.Run(":8686")
 }

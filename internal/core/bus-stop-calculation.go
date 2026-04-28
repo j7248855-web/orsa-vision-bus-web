@@ -1,7 +1,6 @@
 package core
 
 import (
-	"log"
 	"math"
 	"orsavisionweb/internal/models"
 	"time"
@@ -37,7 +36,7 @@ func RadiusCalculation(busPos, stopPos []float64, radius float64) bool {
 	return dist <= radius
 }
 
-func CalculateStopStation(d *models.Dependence, busPos []float64, lastBusPos []float64, timeDiff time.Duration, stopPos []float64, stopRadius float64, actualTime time.Time, busCourse float64, stopAzimuth float64) {
+func CalculateStopStation(d *models.Dependence, busPos []float64, lastBusPos []float64, timeDiff time.Duration, stopPos []float64, stopRadius float64, actualTime time.Time, busCourse float64, stopAzimuth float64) *models.StopEvent {
 	//Вычисление направления азимута остановки и автобуса (смотрят ли они в одну сторону)
 	angleDiff := math.Mod(math.Abs(busCourse-stopAzimuth), 360)
 	if angleDiff > 180 {
@@ -45,7 +44,7 @@ func CalculateStopStation(d *models.Dependence, busPos []float64, lastBusPos []f
 	}
 	//Если больше 90 то не в нашу сторону едет
 	if angleDiff > 90 {
-		return
+		return nil
 	}
 	speed := SpeedCalculation(lastBusPos, busPos, timeDiff)
 	inRadius := RadiusCalculation(busPos, stopPos, stopRadius)
@@ -53,21 +52,35 @@ func CalculateStopStation(d *models.Dependence, busPos []float64, lastBusPos []f
 	if inRadius && speed <= 7 {
 		if d.FirtsSeenOnStation.IsZero() {
 			d.FirtsSeenOnStation = actualTime
-			return
+			return nil
 		}
 	}
 
-	if inRadius && speed <= 10 && !d.FirtsSeenOnStation.IsZero() {
-		if time.Since(d.FirtsSeenOnStation) >= 10*time.Second {
-			log.Println("Остановка засчитана!")
-			d.IsBusStop = true
-			d.FirtsSeenOnStation = time.Time{}
+	if inRadius {
+		d.WasInRadius = true
+		if speed <= 10 && !d.FirtsSeenOnStation.IsZero() {
+			if time.Since(d.FirtsSeenOnStation) >= 10*time.Second {
+				d.IsBusStop = true
+			}
 		}
-		return
 	}
 
-	if !inRadius || speed > 10 {
-		d.FirtsSeenOnStation = time.Time{}
-		log.Println("Автобус проехал остановку") //изменить на Excel
+	if !inRadius {
+		if d.WasInRadius {
+			if d.IsBusStop {
+				// Просчитываем сколько он стоял на остановке
+				duration := actualTime.Sub(d.FirtsSeenOnStation)
+				event := &models.StopEvent{
+					ActualTime:   actualTime,
+					IsSkipped:    false,
+					StayDuration: duration,
+				}
+				d.FirtsSeenOnStation = time.Time{}
+				d.IsBusStop = false
+				d.WasInRadius = false
+				return event
+			}
+		}
 	}
+	return nil
 }

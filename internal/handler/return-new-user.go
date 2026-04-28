@@ -11,7 +11,7 @@ import (
 func ReturnNewUser(ctx *gin.Context, conn *sqlx.DB) {
 	var users []models.CreateUsers
 
-	err := conn.Select(&users, "SELECT username, password, full_name FROM users ORDER BY created_at DESC")
+	err := conn.Select(&users, "SELECT username, full_name, permissions FROM users ORDER BY created_at DESC")
 
 	if err != nil {
 		log.Println("Ошибка при получении пользователей:", err)

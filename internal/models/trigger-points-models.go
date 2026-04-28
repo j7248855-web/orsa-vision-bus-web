@@ -1,18 +1,16 @@
 package models
 
-import "time"
-
 type Stop struct {
-	ID          int        `json:"id" db:"id"`
-	Name        string     `json:"name" db:"name"`
-	Position    [2]float64 `json:"position" db:"-"`    //для JSON
-	Lat         float64    `json:"-" db:"lat"`         //для БД
-	Lon         float64    `json:"-" db:"lng"`         //для БД
-	Radius      float64    `json:"radius" db:"radius"` //может быть nil
-	Type        string     `json:"type" db:"type"`
-	Azimuth     float64    `json:"azimuth" db:"azimuth"`
-	City        string     `json:"city" db:"city"`
-	PlannedTime time.Time  `json:"plannedTime,omitempty" db:"planned_time"`
+	ID       int        `json:"id" db:"id"`
+	Name     string     `json:"name" db:"name"`
+	Position [2]float64 `json:"position" db:"-"`    //для JSON
+	Lat      float64    `json:"-" db:"lat"`         //для БД
+	Lon      float64    `json:"-" db:"lng"`         //для БД
+	Radius   float64    `json:"radius" db:"radius"` //может быть nil
+	Type     string     `json:"type" db:"type"`
+	Azimuth  float64    `json:"azimuth" db:"azimuth"`
+	City     string     `json:"city" db:"city"`
+	Schedule []string
 }
 
 type Route struct {

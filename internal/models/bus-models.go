@@ -2,7 +2,7 @@ package models
 
 // Тип устройства
 type Device struct {
-	ID       string `json:"-" db:"id"`
+	ID       string `json:"id" db:"id"`
 	RTSPlink string `json:"rtspLink" db:"rtsp_link"`
 	Type     string `json:"type" db:"type"`     //камера это или телтоник
 	Status   string `json:"status" db:"status"` //его статус в данный момент

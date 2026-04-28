@@ -2,13 +2,17 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"orsavisionweb/internal/core"
+	"orsavisionweb/internal/core/ws"
 	"orsavisionweb/internal/models"
 	"orsavisionweb/internal/utils"
 	"strconv"
+	"sync"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	gps_pt "github.com/j7248855-web/orsa-vision-grpc-second/gen/sso"
 	"github.com/jmoiron/sqlx"
 )
@@ -17,6 +21,8 @@ type GPSServer struct {
 	gps_pt.UnimplementedGPSTrackerServer
 	Storage map[string]*models.BusContext
 	DB      *sqlx.DB
+	Conns   *ws.Broadcaster
+	Mu      sync.Mutex // Лочим, чтобы горутины не подрались
 }
 
 func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.Status, error) {
@@ -32,11 +38,13 @@ func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.
 		}
 		serv.Storage[req.DeviceIp] = busCtx
 	}
+
 	state := busCtx.State
 	//Взять busID от базы (IP)
 	switch data := req.Payload.(type) {
 	//Определяем что за херня чтобы отправить дальше
 	case *gps_pt.GPSData_Rmc:
+		fmt.Println("Пришли данные GPRMC")
 		lat, _ := strconv.ParseFloat(data.Rmc.Lat, 64)
 		lon, _ := strconv.ParseFloat(data.Rmc.Lon, 64)
 		currentPoint := []float64{lat, lon}
@@ -61,13 +69,23 @@ func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.
 		timeDiff = actualTime.Sub(state.LastTime)
 		//Берём азимут остановки
 		busCourse, _ := strconv.ParseFloat(data.Rmc.TrackTrue, 64)
+		go serv.Conns.SendLocation(gin.H{
+			"bus_id": busCtx.BusID,
+			"lat":    lat,
+			"lon":    lon,
+			"course": busCourse,
+		})
 		for _, v := range busCtx.Stop {
 			stopPos := []float64{v.Lat, v.Lon}
 			wasAtStop := state.IsBusStop //Смотрим ли был он на этой остановке до расчёта
-			core.CalculateStopStation(state, currentPoint, state.LastPoint, timeDiff, stopPos, v.Radius, actualTime, busCourse, v.Azimuth)
+			event := core.CalculateStopStation(state, currentPoint, state.LastPoint, timeDiff, stopPos, v.Radius, actualTime, busCourse, v.Azimuth)
 			//Вычисление времени прибытия автобуса на остановку
 			if !wasAtStop && state.IsBusStop {
-				core.CalculateDelay(actualTime, v.PlannedTime)
+				core.CalculateDelay(event, v.Schedule)
+			}
+			//Формируем отчёт по остановкам
+			if event != nil {
+				core.LogStopEvent(serv.DB, busCtx, v, event)
 			}
 
 		}

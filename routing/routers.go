@@ -2,6 +2,7 @@ package routers
 
 import (
 	"orsavisionweb/internal/auth"
+	"orsavisionweb/internal/core"
 	"orsavisionweb/internal/handler"
 	"orsavisionweb/internal/middleware"
 
@@ -34,6 +35,9 @@ func Routing(r *gin.Engine, conn *sqlx.DB) {
 	pr.POST("/routes/stops", func(ctx *gin.Context) {
 		handler.HandleRouteStops(ctx, conn)
 	})
+	pr.PUT("/edit/stops", func(ctx *gin.Context) {
+		handler.EditBusStops(ctx, conn)
+	})
 	//Возврат данных об остановках по определённому городу
 	pr.GET("/stops/:city", func(ctx *gin.Context) {
 		handler.FullBusStation(ctx, conn)
@@ -45,5 +49,20 @@ func Routing(r *gin.Engine, conn *sqlx.DB) {
 	//Перечень доступных автобусов и их девайсов
 	pr.GET("/new/bus", func(ctx *gin.Context) {
 		handler.GetBuses(ctx, conn)
+	})
+	//Обновление девайсов
+	pr.PUT("/edit/devices", func(ctx *gin.Context) {
+		handler.DeviceEditor(ctx, conn)
+	})
+	//Удаление девайсов
+	pr.DELETE("/delete/devices", func(ctx *gin.Context) {
+		handler.DeviceRemove(ctx, conn)
+	})
+	//Отправка CSV файла с расписанием
+	pr.POST("/schedule", func(ctx *gin.Context) {
+		core.ParsingScheduleCSV(ctx, conn)
+	})
+	pr.POST("/journay/stops/:bus_id", func(ctx *gin.Context) {
+		handler.GetOperationJourneyReport(ctx, conn)
 	})
 }
