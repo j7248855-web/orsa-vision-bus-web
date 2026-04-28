@@ -15,7 +15,7 @@ func CheckDeviation(lat, lon float64, routePoints [][2]float64) bool {
 		return false
 	}
 	var minDeviation = math.MaxFloat64
-	busPos := []float64{lon, lat}
+	busPos := []float64{lat, lon}
 	// Итерируемся по сегментам маршрута (от точки к точке)
 	for i := 0; i < len(routePoints)-1; i++ {
 		p1 := routePoints[i]
