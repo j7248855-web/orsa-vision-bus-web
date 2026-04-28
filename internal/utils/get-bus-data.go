@@ -61,7 +61,7 @@ func LoadFullBusData(ip string) *models.BusContext {
 	if err == nil {
 		ctx.Points = make([][2]float64, len(points))
 		for i, p := range points {
-			ctx.Points[i] = [2]float64{p.Lat, p.Lng}
+			ctx.Points[i] = [2]float64{p.Lng, p.Lat}
 		}
 	}
 
