@@ -44,13 +44,15 @@ func CheckDeviation(lat, lon float64, routePoints [][2]float64) bool {
 			p1[0] + (vecRoad[0] * t),
 			p1[1] + (vecRoad[1] * t),
 		}
-		deltaLon := busPos[0] - projection[0]
-		deltaLat := busPos[1] - projection[1]
+
+		deltaLat := busPos[0] - projection[0]
+		deltaLon := busPos[1] - projection[1]
 
 		metersY := deltaLat * MetersPerDegree
-		busRad := busPos[1] * math.Pi / 180.0
+		busRad := busPos[0] * math.Pi / 180.0
 		metersX := deltaLon * MetersPerDegree * math.Cos(busRad)
-		currentDev := math.Sqrt(math.Pow(metersX, 2) + math.Pow(metersY, 2))
+
+		currentDev := math.Sqrt(metersX*metersX + metersY*metersY)
 		if currentDev < minDeviation {
 			minDeviation = currentDev
 		}
