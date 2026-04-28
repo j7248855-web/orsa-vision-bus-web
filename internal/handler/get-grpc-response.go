@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"orsavisionweb/internal/core"
 	"orsavisionweb/internal/core/ws"
@@ -44,9 +43,9 @@ func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.
 	switch data := req.Payload.(type) {
 	//Определяем что за херня чтобы отправить дальше
 	case *gps_pt.GPSData_Rmc:
-		fmt.Println("Пришли данные GPRMC")
-		lat, _ := strconv.ParseFloat(data.Rmc.Lat, 64)
-		lon, _ := strconv.ParseFloat(data.Rmc.Lon, 64)
+		lat := utils.ConvertNMEAToDecimal(data.Rmc.Lat, data.Rmc.LatDir)
+		lon := utils.ConvertNMEAToDecimal(data.Rmc.Lon, data.Rmc.LonDir)
+
 		currentPoint := []float64{lat, lon}
 		if state.LastPoint == nil {
 			state.LastPoint = currentPoint
