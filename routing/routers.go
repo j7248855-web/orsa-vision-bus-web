@@ -62,7 +62,13 @@ func Routing(r *gin.Engine, conn *sqlx.DB) {
 	pr.POST("/schedule", func(ctx *gin.Context) {
 		core.ParsingScheduleCSV(ctx, conn)
 	})
+	//Отправка отчёта по остановкам
 	pr.POST("/journay/stops/:bus_id", func(ctx *gin.Context) {
 		handler.GetOperationJourneyReport(ctx, conn)
 	})
+	//Отправка отчёта по
+	pr.GET("/journay/violation/:bus_id", func(ctx *gin.Context) {
+		handler.GenerateViolationsExcel(ctx, conn)
+	})
+	//Отправка KPI отчёта
 }

@@ -1,19 +1,22 @@
 package core
 
 import (
+	"fmt"
 	"log"
 	"math"
+	"orsavisionweb/internal/models"
 )
 
 const (
 	MetersPerDegree = 111111.0
 )
 
-func CheckDeviation(lat, lon float64, routePoints [][2]float64) bool {
+func CheckDeviation(lat, lon float64, routePoints [][2]float64) models.DeviationResult {
+	var dResult models.DeviationResult
 	log.Printf("DEBUG: BusLat=%f, BusLon=%f | RouteLat=%f, RouteLon=%f",
 		lat, lon, routePoints[0][0], routePoints[0][1])
 	if len(routePoints) < 2 {
-		return false
+		return dResult
 	}
 	var minDeviation = math.MaxFloat64
 	busPos := []float64{lat, lon}
@@ -57,8 +60,11 @@ func CheckDeviation(lat, lon float64, routePoints [][2]float64) bool {
 		}
 	}
 	if minDeviation > 30.0 && minDeviation != math.MaxFloat64 {
-		log.Printf("Автобус сместился на: %.2f метра", minDeviation)
-		return true
+		tA := fmt.Sprintf("Смещение на %.2f м", minDeviation)
+		return models.DeviationResult{
+			IsOffRoute: true,
+			Value:      tA,
+		}
 	}
-	return false
+	return dResult
 }

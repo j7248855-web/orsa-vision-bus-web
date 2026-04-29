@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"orsavisionweb/internal/core"
 	"orsavisionweb/internal/core/ws"
@@ -60,7 +61,7 @@ func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.
 			now.Year(), now.Month(), now.Day(),
 			gpsTime.Hour(), gpsTime.Minute(), gpsTime.Second(), 0, time.UTC)
 		//Вычисление отклонения маршрута от нормы
-		core.CheckDeviation(lat, lon, busCtx.Points)
+		deviation := core.CheckDeviation(lat, lon, busCtx.Points)
 		var timeDiff time.Duration
 		if state.LastTime.IsZero() {
 			state.LastTime = actualTime
@@ -74,22 +75,33 @@ func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.
 			"lon":    lon,
 			"course": busCourse,
 		})
+		if deviation.IsOffRoute {
+			core.ViolationsReport(serv.DB, busCtx, "Выход с маршрута", deviation.Value)
+		}
 		for _, v := range busCtx.Stop {
 			stopPos := []float64{v.Lat, v.Lon}
 			wasAtStop := state.IsBusStop //Смотрим ли был он на этой остановке до расчёта
 			event := core.CalculateStopStation(state, currentPoint, state.LastPoint, timeDiff, stopPos, v.Radius, actualTime, busCourse, v.Azimuth)
 			//Вычисление времени прибытия автобуса на остановку
-			if !wasAtStop && state.IsBusStop {
-				core.CalculateDelay(event, v.Schedule)
-			}
 			//Формируем отчёт по остановкам
 			if event != nil {
 				core.LogStopEvent(serv.DB, busCtx, v, event)
-			}
 
+				if event.IsSkipped { //Отправка нарушения по остановкам
+					core.ViolationsReport(serv.DB, busCtx, "Пропуск остановки ", fmt.Sprintf("Остановка \"%v\" пропущена", v.Name))
+				}
+
+				if !wasAtStop && state.IsBusStop && !event.IsSkipped {
+					delay := core.CalculateDelay(event, v.Schedule)
+					if delay > 5 { // Порог 5 минут
+						core.ViolationsReport(serv.DB, busCtx, "Нарушение графика", fmt.Sprintf("+%d мин", delay))
+					}
+				}
+			}
 		}
 		state.LastPoint = currentPoint
 		state.LastTime = actualTime
+
 	case *gps_pt.GPSData_Gga:
 		log.Println("Пришли GGA:", data.Gga)
 	case nil:

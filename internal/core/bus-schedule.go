@@ -11,19 +11,27 @@ const (
 	MaxDelayMinutes float64 = 15.0
 )
 
-func CalculateDelay(event *models.StopEvent, schedule []string) {
-	// Если расписания нет - выходим
+func CalculateDelay(event *models.StopEvent, schedule []string) int {
 	if len(schedule) == 0 {
 		event.Status = "Нет расписания"
-		return
+		return 0
 	}
 
 	var bestMatch time.Time
-	minDiff := 1440.0 // Минут в сутках
+	minDiff := 1440.0
 
 	for _, tStr := range schedule {
-		pTime, _ := time.Parse("15:04:05", tStr)
-		// Привязываем время из расписания к текущей дате
+		// УНИВЕРСАЛЬНЫЙ ПАРСИНГ (на случай если секунд нет)
+		layout := "15:04:05"
+		if len(tStr) == 5 {
+			layout = "15:04"
+		}
+
+		pTime, err := time.Parse(layout, tStr)
+		if err != nil {
+			continue
+		}
+
 		planned := time.Date(event.ActualTime.Year(), event.ActualTime.Month(), event.ActualTime.Day(),
 			pTime.Hour(), pTime.Minute(), pTime.Second(), 0, event.ActualTime.Location())
 
@@ -34,15 +42,17 @@ func CalculateDelay(event *models.StopEvent, schedule []string) {
 		}
 	}
 
-	// Считаем итоговую разницу (может быть отрицательной)
-	finalDiff := event.ActualTime.Sub(bestMatch).Minutes()
+	// Итоговая разница в минутах
+	finalDiff := int(event.ActualTime.Sub(bestMatch).Minutes())
 
-	// ПРЯМАЯ ЗАПИСЬ В ПОЛЕ СТРУКТУРЫ
-	if finalDiff < -MaxEarlyMinutes {
+	// Пишем статус
+	if float64(finalDiff) < -MaxEarlyMinutes {
 		event.Status = "Рано прибыл"
-	} else if finalDiff > MaxDelayMinutes {
+	} else if float64(finalDiff) > MaxDelayMinutes {
 		event.Status = "Поздно прибыл"
 	} else {
 		event.Status = "Вовремя"
 	}
+
+	return finalDiff // Теперь функция ВОЗВРАЩАЕТ число
 }
