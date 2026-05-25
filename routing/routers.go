@@ -2,9 +2,14 @@ package routers
 
 import (
 	"orsavisionweb/internal/auth"
-	"orsavisionweb/internal/core"
-	"orsavisionweb/internal/handler"
+	"orsavisionweb/internal/core/reports"
 	"orsavisionweb/internal/middleware"
+	"orsavisionweb/internal/modules/bus"
+	"orsavisionweb/internal/modules/devices"
+	"orsavisionweb/internal/modules/routes"
+	"orsavisionweb/internal/modules/stops"
+	"orsavisionweb/internal/modules/users"
+	auxuliary "orsavisionweb/internal/utils/auxiliary"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
@@ -17,58 +22,100 @@ func Routing(r *gin.Engine, conn *sqlx.DB) {
 	})
 	//Логика защиты
 	protected := r.Group("/api")
+
 	pr := protected.Use(middleware.MiddleWareAuth)
+	//------------------------- REST для пользователя  --------------------------
+	//Добавление нового пользователя
 	pr.POST("/new/user", func(ctx *gin.Context) {
-		handler.CreateNewUser(ctx, conn)
+		users.CreateNewUser(ctx, conn)
 	})
+	//Возвращение нового пользователя
 	pr.GET("/new/user", func(ctx *gin.Context) {
-		handler.ReturnNewUser(ctx, conn)
+		users.ReturnNewUser(ctx, conn)
 	})
+	//Удаление пользователя
+	pr.DELETE("/remove/user/:user_id", func(ctx *gin.Context) {
+		users.RemoveUser(ctx, conn)
+	})
+	//Редактирование пользователей
+	pr.PUT("/edit/user", func(ctx *gin.Context) {
+		users.EditUser(ctx, conn) //логики нет
+	})
+	//------------------------------------------------------------------------------
+
+	//------------------------------- REST ДЛЯ МАРШРУТОВ ---------------------------
 	//Загрузка данных об маршрутах
 	pr.POST("/routes", func(ctx *gin.Context) {
-		handler.HandleRouteWithPoints(ctx, conn)
+		routes.HandleRouteWithPoints(ctx, conn)
 	})
+	//Получение всех маршрутов
 	pr.GET("/routes", func(ctx *gin.Context) {
-		handler.GetFullRoutes(ctx, conn)
+		routes.GetFullRoutes(ctx, conn)
 	})
+	//Удаление маршрутов
+	pr.DELETE("/remove/routes/:route_id", func(ctx *gin.Context) {
+		routes.RemoveRoutes(ctx, conn)
+	})
+	//------------------------------------------------------------------------------
+
+	//------------------------------- REST ДЛЯ ОСТАНОВОК ---------------------------
 	//Добавление новых остановок
 	pr.POST("/routes/stops", func(ctx *gin.Context) {
-		handler.HandleRouteStops(ctx, conn)
+		stops.HandleRouteStops(ctx, conn)
 	})
+	//Редактирование остановок
 	pr.PUT("/edit/stops", func(ctx *gin.Context) {
-		handler.EditBusStops(ctx, conn)
+		stops.EditBusStops(ctx, conn)
 	})
 	//Возврат данных об остановках по определённому городу
 	pr.GET("/stops/:city", func(ctx *gin.Context) {
-		handler.FullBusStation(ctx, conn)
+		stops.FullBusStation(ctx, conn)
 	})
+	//------------------------------------------------------------------------------
+
+	//------------------------------- REST ДЛЯ АВТОБУСОВ ---------------------------
+
 	//Регистрация нового автобуса и его девайсов
 	pr.POST("/new/bus", func(ctx *gin.Context) {
-		handler.RegisterBus(ctx, conn)
+		bus.RegisterBus(ctx, conn)
 	})
 	//Перечень доступных автобусов и их девайсов
 	pr.GET("/new/bus", func(ctx *gin.Context) {
-		handler.GetBuses(ctx, conn)
+		bus.GetBuses(ctx, conn)
 	})
+	pr.PUT("/edit/bus", func(ctx *gin.Context) {
+		bus.EditBus(ctx, conn)
+	})
+	//Удаление автобуса
+	pr.DELETE("/remove/bus/:bus_id", func(ctx *gin.Context) {
+		bus.RemoveBus(ctx, conn)
+	})
+
+	//------------------------------------------------------------------------------------
+
+	//------------------------------- REST ДЛЯ ДЕВАЙСОВ ----------------------------------
 	//Обновление девайсов
-	pr.PUT("/edit/devices", func(ctx *gin.Context) {
-		handler.DeviceEditor(ctx, conn)
+	pr.PUT("/edit/device/:device_id", func(ctx *gin.Context) {
+		devices.DeviceEditor(ctx, conn)
 	})
 	//Удаление девайсов
-	pr.DELETE("/delete/devices", func(ctx *gin.Context) {
-		handler.DeviceRemove(ctx, conn)
+	pr.DELETE("/delete/device/:device_id", func(ctx *gin.Context) {
+		devices.DeviceRemove(ctx, conn)
 	})
+	//-------------------------------------------------------------------------------------
+
+	//---------------------------- REST ДЛЯ ОТПРАВКИ ОТЧЁТА -------------------------------
 	//Отправка CSV файла с расписанием
 	pr.POST("/schedule", func(ctx *gin.Context) {
-		core.ParsingScheduleCSV(ctx, conn)
+		auxuliary.ParsingScheduleCSV(ctx, conn)
 	})
 	//Отправка отчёта по остановкам
 	pr.POST("/journay/stops/:bus_id", func(ctx *gin.Context) {
-		handler.GetOperationJourneyReport(ctx, conn)
+		reports.GetOperationJourneyReport(ctx, conn)
 	})
-	//Отправка отчёта по
+	//Отправка отчёта
 	pr.GET("/journay/violation/:bus_id", func(ctx *gin.Context) {
-		handler.GenerateViolationsExcel(ctx, conn)
+		reports.GenerateViolationsExcel(ctx, conn)
 	})
-	//Отправка KPI отчёта
+	//-------------------------------------------------------------------------------------
 }

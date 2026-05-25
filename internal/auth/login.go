@@ -3,7 +3,8 @@ package auth
 import (
 	"log"
 	"orsavisionweb/internal/models"
-	"orsavisionweb/internal/utils"
+	auxuliary "orsavisionweb/internal/utils/auxiliary"
+	"orsavisionweb/internal/utils/jwtl"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
@@ -24,11 +25,11 @@ func Login(ctx *gin.Context, conn *sqlx.DB) {
 		log.Println("Не удалось достать пароль от пользователя:", err)
 		return
 	}
-	if utils.CheckHashPassword(hashPassword, login.Password) != nil {
+	if auxuliary.CheckHashPassword(hashPassword, login.Password) != nil {
 		ctx.JSON(401, gin.H{"error": "Неверный пароль, пожалуйста перепроверьте"})
 		return
 	}
 	//Формируем JWT и отправляем дальше
-	token := utils.EncryptedToken(id)
+	token := jwtl.EncryptedToken(id)
 	ctx.JSON(200, gin.H{"token": token})
 }

@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"log"
 	"net"
+	handler "orsavisionweb/internal/core/gRPC"
 	"orsavisionweb/internal/core/ws"
 	"orsavisionweb/internal/database"
-	"orsavisionweb/internal/handler"
 	routers "orsavisionweb/routing"
 
 	"github.com/gin-contrib/cors"
