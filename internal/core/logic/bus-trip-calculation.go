@@ -48,7 +48,6 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 			}
 		}
 	}
-	busIDInt, _ := strconv.Atoi(busCtx.BusID)
 	if activeFinalStop != nil {
 
 		if state.TripStatus == "in_trip" && state.CurrentStartStopID != activeFinalStop.ID {
@@ -61,7 +60,7 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 				) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
 
 			_, err := db.Exec(query,
-				busIDInt,
+				busCtx.BusID,
 				busCtx.RouteNumber,
 				state.CurrentStartStopID, // ID конечной старта (запомнили ранее)
 				activeFinalStop.ID,       // ID конечной финиша (где стоим сейчас)

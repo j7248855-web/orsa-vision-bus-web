@@ -20,7 +20,7 @@ type Dependence struct {
 
 // Информация про сам автобус
 type BusContext struct {
-	BusID          string       `db:"bus_id"`
+	BusID          int          `db:"bus_id"`
 	BusNumber      string       `db:"bus_number"` // Добавляем сюда ТС
 	RouteNumber    string       `db:"route_number"`
 	SequenceNumber int          `db:"sequence_number"`
