@@ -13,11 +13,12 @@ const (
 
 func CheckDeviation(lat, lon float64, routePoints [][2]float64) models.DeviationResult {
 	var dResult models.DeviationResult
-	log.Printf("DEBUG: BusLat=%f, BusLon=%f | RouteLat=%f, RouteLon=%f",
-		lat, lon, routePoints[0][0], routePoints[0][1])
 	if len(routePoints) < 2 {
+		log.Printf("WARN: Для автобуса нет точек маршрута в базе (длина: %d)", len(routePoints))
 		return models.DeviationResult{IsOffRoute: false, Value: "0"}
 	}
+	log.Printf("DEBUG: BusLat=%f, BusLon=%f | RouteLat=%f, RouteLon=%f",
+		lat, lon, routePoints[0][0], routePoints[0][1])
 	var minDeviation = math.MaxFloat64
 	busPos := []float64{lat, lon}
 	// Итерируемся по сегментам маршрута (от точки к точке)
