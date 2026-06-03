@@ -27,6 +27,13 @@ type GPSServer struct {
 }
 
 func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.Status, error) {
+	if req == nil {
+		log.Println("[gRPC_FATAL] Прилетел абсолютно пустой запрос (req == nil)!")
+		return &gps_pt.Status{Status: false}, fmt.Errorf("empty request")
+	}
+
+	log.Printf("[gRPC_INCOMING] Сигнал есть! DeviceIp: '%s' | PayloadType: %T", req.DeviceIp, req.Payload)
+
 	if serv.Storage == nil {
 		serv.Storage = make(map[string]*models.BusContext)
 	}
