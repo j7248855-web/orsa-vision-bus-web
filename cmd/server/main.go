@@ -15,6 +15,7 @@ import (
 	cam_pt "github.com/j7248855-web/orsa-vision-grpc-third/gen/cam"
 	"github.com/joho/godotenv"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
 )
 
 func main() {
@@ -38,6 +39,7 @@ func main() {
 			Conns: b,
 		})
 		cam_pt.RegisterCameraControlServer(servGRPC, &handler.Server{DB: dbConn})
+		reflection.Register(servGRPC)
 		servGRPC.Serve(lis)
 	}()
 
