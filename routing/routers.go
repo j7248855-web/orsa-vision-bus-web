@@ -9,7 +9,6 @@ import (
 	"orsavisionweb/internal/modules/routes"
 	"orsavisionweb/internal/modules/stops"
 	"orsavisionweb/internal/modules/users"
-	auxuliary "orsavisionweb/internal/utils/auxiliary"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
@@ -39,7 +38,7 @@ func Routing(r *gin.Engine, conn *sqlx.DB) {
 	})
 	//Редактирование пользователей
 	pr.PUT("/edit/user", func(ctx *gin.Context) {
-		users.EditUser(ctx, conn) //логики нет
+		users.EditUser(ctx, conn)
 	})
 	//------------------------------------------------------------------------------
 
@@ -49,12 +48,19 @@ func Routing(r *gin.Engine, conn *sqlx.DB) {
 		routes.HandleRouteWithPoints(ctx, conn)
 	})
 	//Получение всех маршрутов
-	pr.GET("/routes", func(ctx *gin.Context) {
-		routes.GetFullRoutes(ctx, conn)
+	pr.GET("/data/routes", func(ctx *gin.Context) {
+		routes.FullTripsData(ctx, conn)
+	})
+	//Получение определённого маршрта для редактирования
+	pr.GET("/routes/:route_id", func(ctx *gin.Context) {
+		routes.GetTripInformation(ctx, conn)
 	})
 	//Удаление маршрутов
 	pr.DELETE("/remove/routes/:route_id", func(ctx *gin.Context) {
 		routes.RemoveRoutes(ctx, conn)
+	})
+	pr.PUT("/edit/routes", func(ctx *gin.Context) {
+		routes.EditRoutes(ctx, conn)
 	})
 	//------------------------------------------------------------------------------
 
@@ -90,6 +96,9 @@ func Routing(r *gin.Engine, conn *sqlx.DB) {
 	pr.DELETE("/remove/bus/:bus_id", func(ctx *gin.Context) {
 		bus.RemoveBus(ctx, conn)
 	})
+	pr.GET("/data/bus/:route_number", func(ctx *gin.Context) {
+		bus.DataBus(ctx, conn)
+	})
 
 	//------------------------------------------------------------------------------------
 
@@ -105,10 +114,6 @@ func Routing(r *gin.Engine, conn *sqlx.DB) {
 	//-------------------------------------------------------------------------------------
 
 	//---------------------------- REST ДЛЯ ОТПРАВКИ ОТЧЁТА -------------------------------
-	//Отправка CSV файла с расписанием
-	pr.POST("/schedule", func(ctx *gin.Context) {
-		auxuliary.ParsingScheduleCSV(ctx, conn)
-	})
 	//Отправка отчёта по остановкам
 	pr.POST("/journay/stops/:bus_id", func(ctx *gin.Context) {
 		reports.GetOperationJourneyReport(ctx, conn)

@@ -2,86 +2,58 @@ package auxuliary
 
 import (
 	"encoding/csv"
+	"io"
 	"log"
-	"strings"
+	"orsavisionweb/internal/models"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jmoiron/sqlx"
 )
 
-func ParsingScheduleCSV(ctx *gin.Context, conn *sqlx.DB) {
-	file, err := ctx.FormFile("filecsv")
+func ParsingScheduleCSV(ctx *gin.Context) models.Schedule {
+	fileHeader, err := ctx.FormFile("file")
 	if err != nil {
-		ctx.JSON(400, gin.H{"status": "Файл не получен"})
-		return
+		log.Println("Не удалось получить файл CSV:", err)
+		ctx.JSON(400, gin.H{"status": "error", "details": err.Error()})
+		return models.Schedule{}
 	}
-
-	openFile, err := file.Open()
+	file, err := fileHeader.Open()
 	if err != nil {
-		ctx.JSON(400, gin.H{"status": "Не удалось открыть файл"})
-		return
+		log.Println("Не удалось открыть файл CSV:", err)
+		ctx.JSON(400, gin.H{"status": "error", "details": err.Error()})
+		return models.Schedule{}
 	}
-	defer openFile.Close()
-
-	reader := csv.NewReader(openFile)
-	records, err := reader.ReadAll()
-	if err != nil {
-		log.Println("Не удалось прочитать файл:", err)
-		ctx.JSON(400, gin.H{"status": "Ошибка чтения CSV"})
-		return
-	}
-
-	if len(records) < 2 {
-		ctx.JSON(400, gin.H{"status": "Файл пустой"})
-		return
-	}
-
-	headerMap := make(map[string]int)
-	for i, name := range records[0] {
-		cleanName := strings.Trim(name, " \ufeff\"")
-		headerMap[cleanName] = i
-	}
-
-	requiredColumns := []string{"bus_id", "stop_id", "arrival_time", "day_type"}
-	for _, col := range requiredColumns {
-		if _, exists := headerMap[col]; !exists {
-			log.Println("В файле нет колонки:", col)
-			ctx.JSON(400, gin.H{"status": "В файле нет колонки: " + col})
-			return
+	//Читаем сам файл
+	var currentSequence = 1
+	var schedule models.Schedule
+	var tripSchedule models.TripSteps
+	var arrTripSchedule []models.TripSteps
+	reader := csv.NewReader(file)
+	for {
+		record, err := reader.Read()
+		if err == io.EOF {
+			break
 		}
-	}
-
-	tx := conn.MustBegin()
-	for i := 1; i < len(records); i++ {
-		row := records[i]
-
-		if len(row) == 0 || row[headerMap["bus_id"]] == "" {
-			continue
-		}
-
-		busID := strings.Trim(row[headerMap["bus_id"]], " \"")
-		stopID := strings.Trim(row[headerMap["stop_id"]], " \"")
-		arrivalTime := strings.Trim(row[headerMap["arrival_time"]], " \"")
-		dayType := strings.Trim(row[headerMap["day_type"]], " \"")
-
-		if busID == "" || stopID == "" {
-			continue
-		}
-
-		_, err := tx.Exec(`
-			INSERT INTO stop_schedules (bus_id, stop_id, arrival_time, day_type) 
-			VALUES ($1, $2, $3, $4)`,
-			busID, stopID, arrivalTime, dayType,
-		)
 
 		if err != nil {
-			tx.Rollback()
-			log.Printf("Ошибка на строке %d: %v", i+1, err)
-			ctx.JSON(500, gin.H{"status": "Ошибка БД"})
-			return
+			log.Println("Не удалось прочитать график из файла:", err)
+			return models.Schedule{}
 		}
+		if record[0] == "" || len(record[0]) == 0 {
+			tripSchedule.SequenceNumber = currentSequence
+			currentSequence++
+			schedule.Trips = append(schedule.Trips, arrTripSchedule)
+			arrTripSchedule = []models.TripSteps{}
+			continue
+		}
+		//записываем данные от графика в матрицу
+		tripSchedule.DepartureTime = record[0]
+		tripSchedule.ArrivalTime = record[1]
+		arrTripSchedule = append(arrTripSchedule, tripSchedule)
+
 	}
 
-	tx.Commit()
-	ctx.JSON(200, gin.H{"status": "Красава, всё загружено"})
+	if len(arrTripSchedule) > 0 {
+		schedule.Trips = append(schedule.Trips, arrTripSchedule)
+	}
+	return schedule
 }

@@ -23,7 +23,7 @@ type GPSServer struct {
 	Storage map[string]*models.BusContext
 	DB      *sqlx.DB
 	Conns   *ws.Broadcaster
-	Mu      sync.Mutex // Лочим, чтобы горутины не подрались
+	Mu      sync.Mutex
 }
 
 func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.Status, error) {
@@ -31,13 +31,17 @@ func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.
 		serv.Storage = make(map[string]*models.BusContext)
 	}
 	//Берём данные про айпишник
+	serv.Mu.Lock()
 	busCtx, ok := serv.Storage[req.DeviceIp]
+	serv.Mu.Unlock()
 	if !ok {
 		busCtx = auxuliary.LoadFullBusData(req.DeviceIp)
 		if busCtx == nil {
 			return &gps_pt.Status{Status: false}, nil
 		}
+		serv.Mu.Lock()
 		serv.Storage[req.DeviceIp] = busCtx
+		serv.Mu.Unlock()
 	}
 
 	state := busCtx.State
@@ -70,6 +74,9 @@ func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.
 		timeDiff = actualTime.Sub(state.LastTime)
 		//Берём азимут остановки
 		busCourse, _ := strconv.ParseFloat(data.Rmc.TrackTrue, 64)
+
+		//Рассчёт вхождения
+		logic.ProcessTripState(serv.DB, busCtx, currentPoint, actualTime)
 		go serv.Conns.SendLocation(gin.H{
 			"bus_id": busCtx.BusID,
 			"lat":    lat,

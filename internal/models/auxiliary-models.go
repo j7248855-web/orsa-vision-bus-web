@@ -11,16 +11,22 @@ type Dependence struct {
 	CurrentStopPoints  []float64
 	LastTime           time.Time
 	WasInRadius        bool
+	TripStatus         string    `json:"trip_status"`           // "idle" или "in_trip"
+	CurrentStartStopID int       `json:"current_start_stop_id"` // ID конечной, откуда едет (или где стоит)
+	PlanDeparture      string    `json:"plan_departure"`        // Плановое время выезда
+	PlanArrival        string    `json:"plan_arrival"`          // Плановое время приезда
+	ActualDeparture    time.Time `json:"actual_departure"`      // Реальное время выезда с конечной
 }
 
 // Информация про сам автобус
 type BusContext struct {
-	BusID       string       `db:"bus_id"`
-	BusNumber   string       `db:"bus_number"` // Добавляем сюда ТС (000AAA)
-	RouteNumber string       `db:"route_number"`
-	Stop        []Stop       `db:"-"`
-	Points      [][2]float64 `db:"-"`
-	State       *Dependence  `db:"-"`
+	BusID          string       `db:"bus_id"`
+	BusNumber      string       `db:"bus_number"` // Добавляем сюда ТС
+	RouteNumber    string       `db:"route_number"`
+	SequenceNumber int          `db:"sequence_number"`
+	Stop           []Stop       `db:"-"`
+	Points         [][2]float64 `db:"-"`
+	State          *Dependence  `db:"-"`
 }
 
 // Модель чтобы знать нарушения на остановках

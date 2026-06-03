@@ -2,7 +2,7 @@ package models
 
 // Тип устройства
 type Device struct {
-	ID       string `json:"id" db:"id"`
+	ID       string `db:"id"`
 	BusID    string `db:"bus_id"`
 	DeviceIP string `json:"rtspLink" db:"device_ip"`
 	Type     string `json:"type" db:"type"`     //камера это или телтоник
@@ -11,10 +11,11 @@ type Device struct {
 
 // Основная структура автобуса
 type Bus struct {
-	ID          string   `json:"id" db:"id" binding:"required"`
-	BusNumber   string   `json:"busNumber" db:"bus_number" binding:"required"` //Гос номер
-	RouteNumber string   `json:"rout" db:"route_number" binding:"required"`    //маршрут автобуса
-	Status      string   `json:"status" db:"status" binding:"required"`        //статус для понятия активен
-	City        string   `json:"city" db:"city" binding:"required"`
-	Devices     []Device `json:"devices" db:"-"`
+	ID             string   `json:"id" db:"id"`
+	BusNumber      string   `json:"busNumber" db:"bus_number" binding:"required"` //Гос номер
+	RouteNumber    string   `json:"rout" db:"route_number" binding:"required"`    //маршрут автобуса
+	Status         string   `json:"status" db:"status" binding:"required"`        //статус для понятия активен
+	City           string   `json:"city" db:"city" binding:"required"`
+	SequenceNumber int      `json:"sequence_number" db:"sequence_number"`
+	Devices        []Device `json:"devices" db:"-"`
 }

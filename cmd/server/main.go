@@ -24,8 +24,10 @@ func main() {
 		log.Println("Не удалось прочитать .ENV файл", err)
 		return
 	}
+
 	dbConn := database.Connection()
 	defer dbConn.Close()
+
 	//Чтение GPS
 	go func() {
 		lis, _ := net.Listen("tcp", ":8585")
@@ -38,6 +40,7 @@ func main() {
 		cam_pt.RegisterCameraControlServer(servGRPC, &handler.Server{DB: dbConn})
 		servGRPC.Serve(lis)
 	}()
+
 	//Инициализация gin сервера
 	serv := gin.Default()
 	config := cors.DefaultConfig()
@@ -48,5 +51,8 @@ func main() {
 	//Подключение роутеров
 	routers.Routing(serv, dbConn)
 	routers.WSRoute(serv, b)
+
+	//Установки максимально разрешённого объёма CSV
+	serv.MaxMultipartMemory = 8 << 20
 	serv.Run(":8686")
 }

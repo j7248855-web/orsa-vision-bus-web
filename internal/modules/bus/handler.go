@@ -1,6 +1,7 @@
 package bus
 
 import (
+	"fmt"
 	"log"
 	"orsavisionweb/internal/models"
 
@@ -12,6 +13,7 @@ import (
 func RegisterBus(ctx *gin.Context, conn *sqlx.DB) {
 	var bus models.Bus
 	if err := ctx.ShouldBindJSON(&bus); err != nil {
+		log.Println("Не получилось распарсить данные:", err)
 		ctx.JSON(400, gin.H{"error": "Непредвиденная ошибка:", "details": err.Error()})
 		return
 	}
@@ -42,30 +44,26 @@ func RegisterBus(ctx *gin.Context, conn *sqlx.DB) {
 	var lastBusID int
 
 	//Добавление в базу данных нового автобуса
-	queryBus := `
-        INSERT INTO buses (bus_number, route_number, status, city) 
-        VALUES ($1, $2, $3, $4) 
-        RETURNING id`
 
-	err = tx.QueryRow(queryBus, bus.BusNumber, bus.RouteNumber, bus.Status, bus.City).Scan(&lastBusID)
+	err = tx.QueryRowContext(ctx, `
+        INSERT INTO buses (bus_number, route_number, status, city, sequence_number) 
+        VALUES ($1, $2, $3, $4, $5) 
+        RETURNING id`, bus.BusNumber, bus.RouteNumber, bus.Status, bus.City, bus.SequenceNumber).Scan(&lastBusID)
 	if err != nil {
 		log.Println("Ошибка добавления автобуса:", err)
 		ctx.JSON(500, gin.H{"error": "Ошибка сохранения автобуса: " + err.Error()})
 		return
 	}
-
-	if len(bus.Devices) > 0 {
-		for _, dev := range bus.Devices {
-			queryDev := `
+	for _, dev := range bus.Devices {
+		queryDev := `
                 INSERT INTO devices (device_ip, type, status, bus_id) 
                 VALUES ($1, $2, $3, $4)`
 
-			_, err = tx.ExecContext(ctx, queryDev, dev.DeviceIP, dev.Type, dev.Status, lastBusID)
-			if err != nil {
-				log.Println("Ошибка добавления девайса:", err)
-				ctx.JSON(500, gin.H{"error": "Ошибка сохранения девайса: " + err.Error()})
-				return
-			}
+		_, err = tx.ExecContext(ctx, queryDev, dev.DeviceIP, dev.Type, dev.Status, lastBusID)
+		if err != nil {
+			log.Println("Ошибка добавления девайса:", err)
+			ctx.JSON(500, gin.H{"error": "Ошибка сохранения девайса: " + err.Error()})
+			return
 		}
 	}
 
@@ -83,7 +81,7 @@ func GetBuses(ctx *gin.Context, conn *sqlx.DB) {
 	var devices []models.Device
 	busMap := make(map[string]*models.Bus)
 	//Достаём автобусы
-	err := conn.Select(&buses, "SELECT id, bus_number, route_number, status FROM buses")
+	err := conn.SelectContext(ctx, &buses, "SELECT id, bus_number, route_number, status, city FROM buses")
 	if err != nil {
 		log.Println("Ошибка получения автобусов:", err)
 		ctx.JSON(500, gin.H{"error": "Ошибка базы данных при поиске автобусов"})
@@ -91,14 +89,13 @@ func GetBuses(ctx *gin.Context, conn *sqlx.DB) {
 	}
 
 	//Достаём данные девайсов
-	err = conn.Select(&devices, "SELECT id, device_ip, type, status")
+	err = conn.SelectContext(ctx, &devices, "SELECT id, bus_id, device_ip, type, status FROM devices")
 	if err != nil {
-		log.Println("Ошибка получения ltdfqcjd:", err)
+		log.Println("Ошибка получения девайсов:", err)
 		ctx.JSON(500, gin.H{"error": "Ошибка базы данных при поиске девайсов", "details": err.Error()})
 		return
 	}
 	//Сопоставление данных от автобуса, с данными от девайсов
-
 	for value := range buses {
 		busMap[buses[value].ID] = &buses[value]
 	}
@@ -107,7 +104,6 @@ func GetBuses(ctx *gin.Context, conn *sqlx.DB) {
 			bus.Devices = append(bus.Devices, value)
 		}
 	}
-
 	ctx.JSON(200, buses)
 }
 
@@ -116,14 +112,14 @@ func EditBus(ctx *gin.Context, conn *sqlx.DB) {
 	var updatedBus models.Bus
 
 	if err := ctx.ShouldBindJSON(&updatedBus); err != nil {
+		log.Println("Не получилось распарсить данные:", err)
 		ctx.JSON(400, gin.H{"error": "Непредвиденная ошибка:", "details": err.Error()})
 		return
 	}
-
 	query := `
-		UPDATE buses 
-		SET bus_number = $1, route_number = $2, status = $3, city = $4
-		WHERE id = $5`
+			UPDATE buses 
+			SET bus_number = $1, route_number = $2, status = $3, city = $4
+			WHERE id = $5`
 
 	result, err := conn.ExecContext(ctx, query,
 		updatedBus.BusNumber,
@@ -137,14 +133,40 @@ func EditBus(ctx *gin.Context, conn *sqlx.DB) {
 		ctx.JSON(500, gin.H{"error": "Проблема обновления данных: " + err.Error()})
 		return
 	}
+	if len(updatedBus.Devices) > 0 {
 
+		for _, device := range updatedBus.Devices {
+			device.BusID = updatedBus.ID
+			_, err := conn.ExecContext(ctx, "DELETE FROM devices WHERE bus_id = $1", updatedBus.ID)
+			if err != nil {
+				log.Println("Не удалось удалить старые устройства:", err)
+				ctx.JSON(500, gin.H{"error": "Проблема очистки старых устройств: " + err.Error()})
+				return
+			}
+
+			insertQuery := `
+            INSERT INTO devices (bus_id, device_ip, type, status) 
+            VALUES (:bus_id, :device_ip, :type, :status)`
+
+			for _, device := range updatedBus.Devices {
+				device.BusID = updatedBus.ID // Привязываем к нашему автобусу
+
+				_, err := conn.NamedExecContext(ctx, insertQuery, device)
+				if err != nil {
+					log.Println("Не удалось добавить обновленное устройство:", err)
+					ctx.JSON(500, gin.H{"error": "Проблема сохранения устройств: " + err.Error()})
+					return
+				}
+			}
+		}
+	}
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
 		ctx.JSON(404, gin.H{"error": "Автобус с таким ID не найден"})
 		return
 	}
 
-	ctx.JSON(200, gin.H{"message": "Данные автобуса обновлены"})
+	ctx.JSON(200, gin.H{"status": "success"})
 }
 
 // Удаление автобуса
@@ -165,4 +187,33 @@ func RemoveBus(ctx *gin.Context, conn *sqlx.DB) {
 	}
 
 	ctx.JSON(200, gin.H{"message": "Автобус успешно удален"})
+}
+
+// Данные о графике
+func DataBus(ctx *gin.Context, conn *sqlx.DB) {
+	routeNumber := ctx.Param("route_number")
+
+	var routeID int
+	err := conn.GetContext(ctx, &routeID, "SELECT id FROM routes WHERE route_number = $1 LIMIT 1", routeNumber)
+	if err != nil {
+		log.Println("Маршрут не найден или ошибка БД:", err)
+		ctx.JSON(404, gin.H{"error": "Маршрут с таким номером не найден"})
+		return
+	}
+
+	var schedules []models.TripSteps
+	err = conn.SelectContext(ctx, &schedules, `
+		SELECT DISTINCT ON (sequence_number) route_id, sequence_number, departure_time, arrival_time 
+		FROM schedules 
+		WHERE route_id = $1
+		ORDER BY sequence_number ASC, departure_time ASC`, routeID)
+	if err != nil {
+		log.Println("Не получилось распарсить данные расписания:", err)
+		ctx.JSON(500, gin.H{"error": "Ошибка при получении расписания: " + err.Error()})
+		return
+	}
+	fmt.Println("Данные из базы", schedules)
+	ctx.JSON(200, gin.H{
+		"schedules": schedules,
+	})
 }

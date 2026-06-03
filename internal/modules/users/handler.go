@@ -81,6 +81,7 @@ func EditUser(ctx *gin.Context, conn *sqlx.DB) {
 	var updatedUser models.CreateUsers
 
 	if err := ctx.ShouldBindJSON(&updatedUser); err != nil {
+		log.Println("Не удалось распарсить данные:", err)
 		ctx.JSON(400, gin.H{"error": "Непредвиденная ошибка", "details": err.Error()})
 		return
 	}
