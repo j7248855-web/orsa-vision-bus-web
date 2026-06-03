@@ -13,6 +13,8 @@ const (
 
 func CheckDeviation(lat, lon float64, routePoints [][2]float64) models.DeviationResult {
 	var dResult models.DeviationResult
+	log.Printf("DEBUG: BusLat=%f, BusLon=%f | RouteLat=%f, RouteLon=%f",
+		lat, lon, routePoints[0][0], routePoints[0][1])
 	if len(routePoints) < 2 {
 		return models.DeviationResult{IsOffRoute: false, Value: "0"}
 	}
