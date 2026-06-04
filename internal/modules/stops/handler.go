@@ -94,7 +94,21 @@ func FullBusStation(ctx *gin.Context, conn *sqlx.DB) {
 	ctx.JSON(200, dbStops)
 }
 
-// func RemoveStops(ctx *gin.Context, conn *sqlx.DB) {
-// 	stop_id := ctx.Param("stop_id")
+func RemoveStops(ctx *gin.Context, conn *sqlx.DB) {
+	stop_id := ctx.Param("stop_id")
+	var stops models.Stop
+	ctx.ShouldBindJSON(&stops)
 
-// }
+	result, err := conn.ExecContext(ctx, "DELETE FROM stops WHERE id=$1", stop_id)
+	if err != nil {
+		log.Println("Не удалось распарсить данные от фронта (/api/remove/stops):", err)
+		ctx.JSON(500, gin.H{"status:": "Непредвиденная ошибка", "details": err.Error()})
+		return
+	}
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		ctx.JSON(404, gin.H{"error": "Автобус с таким ID не найден"})
+		return
+	}
+	ctx.JSON(200, gin.H{"status": "success"})
+}

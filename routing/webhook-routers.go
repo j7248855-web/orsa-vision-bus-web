@@ -14,6 +14,7 @@ func WHRoute(serv *gin.Engine, conn *sqlx.DB) {
 		log.Println("Запрос от тревожной кнопки")
 		rawData, err := ctx.GetRawData()
 		if err == nil && len(rawData) > 0 {
+			log.Println("ДАННЫЕ ОТ ЗАПРОСА:", string(rawData))
 			core.BusEmergency(rawData, conn)
 		}
 		ctx.JSON(200, gin.H{
