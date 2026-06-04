@@ -55,7 +55,7 @@ func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.
 		busCtx = auxuliary.LoadFullBusData(req.DeviceIp, serv.DB)
 		if busCtx == nil {
 			serv.Mu.Lock()
-			serv.NonExisenIPs[req.DeviceIp] = time.Now().Add(5 * time.Second)
+			serv.NonExisenIPs[req.DeviceIp] = time.Now().Add(10 * time.Minute)
 			serv.Mu.Unlock()
 			return &gps_pt.Status{Status: false}, nil
 		}
