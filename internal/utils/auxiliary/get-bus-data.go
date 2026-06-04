@@ -2,12 +2,12 @@ package auxuliary
 
 import (
 	"log"
-	"orsavisionweb/internal/database"
 	"orsavisionweb/internal/models"
+
+	"github.com/jmoiron/sqlx"
 )
 
-func LoadFullBusData(ip string) *models.BusContext {
-	conn := database.Connection()
+func LoadFullBusData(ip string, conn *sqlx.DB) *models.BusContext {
 	ctx := &models.BusContext{}
 	err := conn.Get(ctx, `
 		SELECT b.id as bus_id, b.route_number as route_number, b.sequence_number as sequence_number
