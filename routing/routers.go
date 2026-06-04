@@ -123,4 +123,9 @@ func Routing(r *gin.Engine, conn *sqlx.DB) {
 		reports.GenerateViolationsExcel(ctx, conn)
 	})
 	//-------------------------------------------------------------------------------------
+
+	//---------------------------REST ДЛЯ ТРЕВОЖНОЙ КНОПКИ---------------------------------
+	pr.GET("/emergency/data", func(ctx *gin.Context) {
+		bus.EmergencyButton(ctx, conn)
+	})
 }

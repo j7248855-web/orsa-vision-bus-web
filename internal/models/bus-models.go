@@ -1,5 +1,7 @@
 package models
 
+import "time"
+
 // Тип устройства
 type Device struct {
 	ID       string `db:"id"`
@@ -11,11 +13,18 @@ type Device struct {
 
 // Основная структура автобуса
 type Bus struct {
-	ID             string   `json:"id" db:"id"`
-	BusNumber      string   `json:"busNumber" db:"bus_number" binding:"required"` //Гос номер
-	RouteNumber    string   `json:"rout" db:"route_number" binding:"required"`    //маршрут автобуса
-	Status         string   `json:"status" db:"status" binding:"required"`        //статус для понятия активен
-	City           string   `json:"city" db:"city" binding:"required"`
-	SequenceNumber int      `json:"sequence_number" db:"sequence_number"`
-	Devices        []Device `json:"devices" db:"-"`
+	ID             string        `json:"id" db:"id"`
+	BusNumber      string        `json:"busNumber" db:"bus_number" binding:"required"` //Гос номер
+	RouteNumber    string        `json:"rout" db:"route_number" binding:"required"`    //маршрут автобуса
+	Status         string        `json:"status" db:"status" binding:"required"`        //статус для понятия активен
+	City           string        `json:"city" db:"city" binding:"required"`
+	SequenceNumber int           `json:"sequence_number" db:"sequence_number"`
+	Devices        []Device      `json:"devices" db:"-"`
+	Schedule       []ScheduleBus `json:"schedule"`
+}
+
+type ScheduleBus struct {
+	SequenceNumber int       `json:"-" db:"sequence_number"`
+	ArrivalTime    time.Time `json:"arrival_time" db:"arrival_time"`
+	DepartuteTime  time.Time `json:"departure_time" db:"departure_time"`
 }

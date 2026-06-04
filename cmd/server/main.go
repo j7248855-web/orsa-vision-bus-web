@@ -50,9 +50,11 @@ func main() {
 	config.AllowMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}
 	config.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization"}
 	serv.Use(cors.New(config))
+
 	//Подключение роутеров
 	routers.Routing(serv, dbConn)
 	routers.WSRoute(serv, b)
+	routers.WHRoute(serv, dbConn)
 
 	//Установки максимально разрешённого объёма CSV
 	serv.MaxMultipartMemory = 8 << 20

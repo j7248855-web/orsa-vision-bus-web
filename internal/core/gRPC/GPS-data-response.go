@@ -30,6 +30,7 @@ func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.
 	if serv.Storage == nil {
 		serv.Storage = make(map[string]*models.BusContext)
 	}
+	log.Printf("IP ОТПРАВИТЕЛЯ (req.DeviceIp): '%s'", req.DeviceIp)
 	//Берём данные про айпишник
 	serv.Mu.Lock()
 	busCtx, ok := serv.Storage[req.DeviceIp]

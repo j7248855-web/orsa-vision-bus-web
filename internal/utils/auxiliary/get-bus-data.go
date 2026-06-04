@@ -17,11 +17,11 @@ func LoadFullBusData(ip string) *models.BusContext {
 		LIMIT 1`, ip)
 
 	if err != nil {
-		log.Printf("[DB_ERROR] Ошибка первого запроса (buses/devices) для IP '%s': %v", ip, err)
+		log.Printf("Ошибка первого запроса (buses/devices) для IP '%s': %v", ip, err)
 		return nil
 	}
 
-	log.Printf("[DB_DEBUG] Автобус найден успешно. BusID: %d, RouteNumber: '%s'", ctx.BusID, ctx.RouteNumber)
+	log.Printf("Автобус найден успешно. BusID: %d, RouteNumber: '%s'", ctx.BusID, ctx.RouteNumber)
 
 	err = conn.Select(&ctx.Stop, `
 		SELECT id, name, lat, lng, radius, type, city 

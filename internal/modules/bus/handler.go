@@ -79,31 +79,59 @@ func RegisterBus(ctx *gin.Context, conn *sqlx.DB) {
 func GetBuses(ctx *gin.Context, conn *sqlx.DB) {
 	var buses []models.Bus
 	var devices []models.Device
+	var schedules []models.ScheduleBus
+
 	busMap := make(map[string]*models.Bus)
-	//Достаём автобусы
-	err := conn.SelectContext(ctx, &buses, "SELECT id, bus_number, route_number, status, city FROM buses")
+	seqMap := make(map[int]*models.Bus)
+
+	// Достаём автобусы
+	err := conn.SelectContext(ctx, &buses, "SELECT id, bus_number, route_number, status, city, sequence_number FROM buses")
 	if err != nil {
 		log.Println("Ошибка получения автобусов:", err)
 		ctx.JSON(500, gin.H{"error": "Ошибка базы данных при поиске автобусов"})
 		return
 	}
 
-	//Достаём данные девайсов
+	// Достаём данные девайсов
 	err = conn.SelectContext(ctx, &devices, "SELECT id, bus_id, device_ip, type, status FROM devices")
 	if err != nil {
 		log.Println("Ошибка получения девайсов:", err)
 		ctx.JSON(500, gin.H{"error": "Ошибка базы данных при поиске девайсов", "details": err.Error()})
 		return
 	}
-	//Сопоставление данных от автобуса, с данными от девайсов
+
+	scheduleQuery := `
+        SELECT DISTINCT ON (sequence_number) sequence_number, arrival_time, departure_time 
+        FROM schedules 
+        ORDER BY sequence_number, arrival_time ASC
+    `
+	err = conn.SelectContext(ctx, &schedules, scheduleQuery)
+	if err != nil {
+		log.Println("Ошибка получения расписания:", err)
+		ctx.JSON(500, gin.H{"error": "Ошибка базы данных при поиске расписания", "details": err.Error()})
+		return
+	}
+
+	// Заполняем мапы для быстрого поиска
 	for value := range buses {
 		busMap[buses[value].ID] = &buses[value]
+		seqMap[buses[value].SequenceNumber] = &buses[value]
 	}
+
+	// Сопоставление девайсов по bus_id
 	for _, value := range devices {
 		if bus, ok := busMap[value.BusID]; ok {
 			bus.Devices = append(bus.Devices, value)
 		}
 	}
+
+	// Сопоставление расписания по sequence_number
+	for _, value := range schedules {
+		if bus, ok := seqMap[value.SequenceNumber]; ok {
+			bus.Schedule = append(bus.Schedule, value)
+		}
+	}
+
 	ctx.JSON(200, buses)
 }
 
@@ -216,4 +244,16 @@ func DataBus(ctx *gin.Context, conn *sqlx.DB) {
 	ctx.JSON(200, gin.H{
 		"schedules": schedules,
 	})
+}
+
+// Тревожная кнопка
+func EmergencyButton(ctx *gin.Context, conn *sqlx.DB) {
+	var emergencyAlert models.EmergencyInformation
+	err := conn.SelectContext(ctx, &emergencyAlert, "SELECT bus_id, bus_number, route_number, emergency_at FROM buses_emergencies")
+	if err != nil {
+		log.Println("Не удалось достать из базы данные:", err)
+		ctx.JSON(500, gin.H{"status": "error", "details": err.Error()})
+		return
+	}
+	ctx.JSON(200, emergencyAlert)
 }
