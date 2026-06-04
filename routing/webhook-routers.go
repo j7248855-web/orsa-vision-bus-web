@@ -10,7 +10,7 @@ import (
 
 // Функция вебхука тревожной кнопки
 func WHRoute(serv *gin.Engine, conn *sqlx.DB) {
-	serv.POST("/api/alarm", func(ctx *gin.Context) {
+	serv.GET("/api/alarm", func(ctx *gin.Context) {
 		log.Println("Запрос от тревожной кнопки")
 		rawData, err := ctx.GetRawData()
 		if err == nil && len(rawData) > 0 {
