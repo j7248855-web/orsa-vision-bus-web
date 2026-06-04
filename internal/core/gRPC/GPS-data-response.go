@@ -20,15 +20,31 @@ import (
 
 type GPSServer struct {
 	gps_pt.UnimplementedGPSTrackerServer
-	Storage map[string]*models.BusContext
-	DB      *sqlx.DB
-	Conns   *ws.Broadcaster
-	Mu      sync.Mutex
+	Storage      map[string]*models.BusContext
+	NonExisenIPs map[string]time.Time
+	DB           *sqlx.DB
+	Conns        *ws.Broadcaster
+	Mu           sync.Mutex
 }
 
 func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.Status, error) {
 	if serv.Storage == nil {
 		serv.Storage = make(map[string]*models.BusContext)
+	}
+	if serv.NonExisenIPs == nil {
+		serv.NonExisenIPs = make(map[string]time.Time)
+	}
+	serv.Mu.Lock()
+	blockedUntil, isBlocked := serv.NonExisenIPs[req.DeviceIp]
+	serv.Mu.Unlock()
+
+	if isBlocked {
+		if time.Now().Before(blockedUntil) {
+			return &gps_pt.Status{Status: false}, nil
+		}
+		serv.Mu.Lock()
+		delete(serv.NonExisenIPs, req.DeviceIp)
+		serv.Mu.Unlock()
 	}
 	log.Printf("IP ОТПРАВИТЕЛЯ (req.DeviceIp): '%s'", req.DeviceIp)
 	//Берём данные про айпишник
@@ -38,6 +54,9 @@ func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.
 	if !ok {
 		busCtx = auxuliary.LoadFullBusData(req.DeviceIp, serv.DB)
 		if busCtx == nil {
+			serv.Mu.Lock()
+			serv.NonExisenIPs[req.DeviceIp] = time.Now().Add(5 * time.Second)
+			serv.Mu.Unlock()
 			return &gps_pt.Status{Status: false}, nil
 		}
 		serv.Mu.Lock()
