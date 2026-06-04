@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"fmt"
 	"log"
 	"orsavisionweb/internal/models"
 	auxuliary "orsavisionweb/internal/utils/auxiliary"
@@ -20,7 +19,6 @@ func Login(ctx *gin.Context, conn *sqlx.DB) {
 	}
 	var id int
 	var hashPassword string
-	fmt.Println(login)
 	err = conn.QueryRow("SELECT id, password FROM users WHERE username=$1", login.Name).Scan(&id, &hashPassword)
 	if err != nil {
 		ctx.JSON(401, gin.H{"error": "Ошибка со стороны сервера"})
