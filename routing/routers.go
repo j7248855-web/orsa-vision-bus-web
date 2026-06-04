@@ -77,6 +77,9 @@ func Routing(r *gin.Engine, conn *sqlx.DB) {
 	pr.GET("/stops/:city", func(ctx *gin.Context) {
 		stops.FullBusStation(ctx, conn)
 	})
+	// pr.DELETE("/stops/:stop_id", func(ctx *gin.Context) {
+	// 	stops.RemoveStops(ctx, conn)
+	// })
 	//------------------------------------------------------------------------------
 
 	//------------------------------- REST ДЛЯ АВТОБУСОВ ---------------------------

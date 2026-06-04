@@ -19,10 +19,14 @@ func Login(ctx *gin.Context, conn *sqlx.DB) {
 	}
 	var id int
 	var hashPassword string
-	err = conn.QueryRow("SELECT id, password FROM users WHERE username=$1", login.Name).Scan(&id, &hashPassword)
+	var dbUser struct {
+		ID       int    `db:"id"`
+		Password string `db:"password"`
+	}
+	err = conn.GetContext(ctx, &dbUser, "SELECT id, password FROM users WHERE username = $1 LIMIT 1", login.Name)
 	if err != nil {
-		ctx.JSON(401, gin.H{"error": "Ошибка со стороны сервера"})
-		log.Println("Не удалось достать пароль от пользователя:", err)
+		ctx.JSON(401, gin.H{"error": "Пользователь не найден или ошибка сервера"})
+		log.Println("Не удалось достать пользователя из БД:", err)
 		return
 	}
 	if auxuliary.CheckHashPassword(hashPassword, login.Password) != nil {
