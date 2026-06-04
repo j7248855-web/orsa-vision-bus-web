@@ -50,7 +50,7 @@ func EditBusStops(ctx *gin.Context, conn *sqlx.DB) {
 
 	query := `
         UPDATE stops 
-        SET name=$1, lat=$2, lng=$3, radius=$4, type=$5, azimuth=$6, city=$7 
+        SET name=$1, lng=$2, lat=$3, radius=$4, type=$5, azimuth=$6, city=$7 
         WHERE id=$8`
 
 	_, err := conn.ExecContext(ctx, query,
