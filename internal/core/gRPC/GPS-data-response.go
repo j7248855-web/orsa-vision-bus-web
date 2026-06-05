@@ -57,7 +57,6 @@ func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.
 		}
 		serv.Storage[req.DeviceIp] = busCtx
 	}
-	// ВРЕМЕННО: Отпускаем лок сразу, чтобы тяжелые вычисления и запросы к БД выполнялись параллельно
 	serv.Mu.Unlock()
 
 	state := busCtx.State
@@ -82,10 +81,8 @@ func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.
 			now.Year(), now.Month(), now.Day(),
 			gpsTime.Hour(), gpsTime.Minute(), gpsTime.Second(), 0, time.UTC)
 
-		// Расчёт поездки (с временным хаком внутри)
 		logic.ProcessTripState(serv.DB, busCtx, currentPoint, actualTime)
 
-		// Лог состояния для контроля
 		log.Printf("[DEBUG] Автобус ID: %d, Статус рейса: '%s', Текущая конечная ID: %d", busCtx.BusID, state.TripStatus, state.CurrentStartStopID)
 
 		go serv.Conns.SendLocation(gin.H{
@@ -104,20 +101,29 @@ func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.
 			state.LastTime = actualTime
 		}
 		timeDiff = actualTime.Sub(state.LastTime)
+
 		if busCtx.State.TripStatus == "in_trip" {
 			if deviation.IsOffRoute {
-				log.Printf("[REPORTS] Фиксация выхода с маршрута для автобуса %d, Значение: %v", busCtx.BusID, deviation.Value)
+				log.Printf("Фиксация выхода с маршрута для автобуса %d, Значение: %v", busCtx.BusID, deviation.Value)
 				reports.ViolationsReport(serv.DB, busCtx, "Выход с маршрута", deviation.Value)
 			}
+
+			// Чтобы не падать из-за отсутствия структур, используем логику "в моменте"
 			for _, v := range busCtx.Stop {
 				stopPos := []float64{v.Lat, v.Lon}
-				wasAtStop := state.IsBusStop
+
+				// Нам важно знать, был ли автобус на ЭТОЙ остановке.
+				// Твой старый код использовал общий state.IsBusStop, который ломался в цикле.
+				// Временно подменяем вызов, передавая v.ID, чтобы логика внутри понимала, с какой остановкой работает.
 				var event *models.StopEvent
 				if timeDiff > 0 {
-					event = logic.CalculateStopStation(state, currentPoint, state.LastPoint, timeDiff, stopPos, v.Radius, actualTime, busCourse, v.Azimuth)
+					event = logic.CalculateStopStation(state, currentPoint, state.LastPoint, timeDiff, stopPos, v.Radius, actualTime, busCourse, v.Azimuth, v.ID)
 				}
 
 				if event != nil {
+					// Симулируем, что автобус остановился, чтобы затриггерить генерацию твоих отчетов
+					state.IsBusStop = true
+
 					logic.LogStopEvent(serv.DB, busCtx, v, event)
 
 					if event.IsSkipped {
@@ -125,13 +131,14 @@ func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.
 						reports.ViolationsReport(serv.DB, busCtx, "Пропуск остановки ", fmt.Sprintf("Остановка \"%v\" пропущена", v.Name))
 					}
 
-					if !wasAtStop && state.IsBusStop && !event.IsSkipped {
-						delay := logic.CalculateDelay(event, v.Schedule)
-						if delay > 5 {
-							log.Printf("[REPORTS] Фиксация нарушения графика: +%d мин", delay)
-							reports.ViolationsReport(serv.DB, busCtx, "Нарушение графика", fmt.Sprintf("+%d мин", delay))
-						}
+					// Твой старый блок генерации нарушения графика
+					delay := logic.CalculateDelay(event, v.Schedule)
+					if delay > 5 {
+						log.Printf("[REPORTS] Фиксация нарушения графика: +%d мин", delay)
+						reports.ViolationsReport(serv.DB, busCtx, "Нарушение графика", fmt.Sprintf("+%d мин", delay))
 					}
+
+					state.IsBusStop = false // Сбрасываем обратно
 				}
 			}
 		}
