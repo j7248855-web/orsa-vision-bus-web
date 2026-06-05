@@ -121,6 +121,7 @@ func Routing(r *gin.Engine, conn *sqlx.DB) {
 	pr.POST("/journey/reports/download", func(ctx *gin.Context) {
 		reports.HandleGenerateReport(ctx, conn)
 	})
+
 	//Отправка всей информации об отчёте
 	pr.POST("/journey/reports/list", func(ctx *gin.Context) {
 		reports.HandleGetReportsList(ctx, conn)

@@ -14,6 +14,7 @@ import (
 func HandleGenerateReport(ctx *gin.Context, conn *sqlx.DB) {
 	var req models.ReportRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
+		log.Println("Не удалось распарсить данные:", err)
 		ctx.JSON(400, gin.H{"error": "Неверный формат запроса", "details": err.Error()})
 		return
 	}
@@ -36,11 +37,13 @@ func HandleGenerateReport(ctx *gin.Context, conn *sqlx.DB) {
 		// Передаем в функцию строку-фильтр для базы
 		file, err = GenerateViolationsExcelFiltered(ctx, conn, req, "Пропуск остановки")
 	default:
+		log.Println("Неизвестный вид отчётности")
 		ctx.JSON(400, gin.H{"error": "Неизвестный вид отчетности"})
 		return
 	}
 
 	if err != nil {
+		log.Println("Ошибка генерации отчёта:", err)
 		ctx.JSON(500, gin.H{"error": "Ошибка генерации отчета: " + err.Error()})
 		return
 	}
