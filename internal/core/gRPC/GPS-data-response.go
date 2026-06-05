@@ -29,6 +29,7 @@ type GPSServer struct {
 
 func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.Status, error) {
 	serv.Mu.Lock()
+	log.Printf("Получен пакет от IP: %s, тип Payload: %T", req.DeviceIp, req.Payload)
 	defer serv.Mu.Unlock()
 	if serv.Storage == nil {
 		serv.Storage = make(map[string]*models.BusContext)
