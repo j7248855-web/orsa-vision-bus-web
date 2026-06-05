@@ -40,6 +40,11 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 	for i := range busCtx.Stop {
 		if busCtx.Stop[i].Type == "final" {
 			dist := CalculateDistance(currentPoint[0], currentPoint[1], busCtx.Stop[i].Lat, busCtx.Stop[i].Lon)
+
+			// ВОТ ЭТОТ ЛОГ ВСЁ ПОКАЖЕТ:
+			log.Printf("[DEBUG_DIST] Автобус (%f, %f) | Конечная %s (%f, %f) | Дистанция: %.2f метров | Радиус: %d",
+				currentPoint[0], currentPoint[1], busCtx.Stop[i].Name, busCtx.Stop[i].Lat, busCtx.Stop[i].Lon, dist, busCtx.Stop[i].Radius)
+
 			if dist <= float64(busCtx.Stop[i].Radius) {
 				activeFinalStop = &busCtx.Stop[i]
 				break
