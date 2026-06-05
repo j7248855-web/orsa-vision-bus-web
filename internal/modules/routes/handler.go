@@ -194,7 +194,6 @@ func EditRoutes(ctx *gin.Context, conn *sqlx.DB) {
 	}
 	defer tx.Rollback()
 
-	// Обновление данных о маршруте
 	result, err := tx.ExecContext(ctx, `UPDATE routes SET route_number = $1, name = $2, city = $3, status = $4 WHERE id = $5`, routes.RouteID, routes.Name, routes.City, routes.Status, routes.ID)
 	if err != nil {
 		log.Println("Непредвиденная ошибка обновлении маршрута:", err)
@@ -208,7 +207,6 @@ func EditRoutes(ctx *gin.Context, conn *sqlx.DB) {
 		return
 	}
 
-	// Сносим старые точки пути
 	_, err = tx.ExecContext(ctx, "DELETE FROM route_path_points WHERE route_id = $1", routes.ID)
 	if err != nil {
 		log.Println("Непредвиденная ошибка удалении старых точек:", err)
@@ -216,7 +214,6 @@ func EditRoutes(ctx *gin.Context, conn *sqlx.DB) {
 		return
 	}
 
-	// Обновление точек маршрута через временный массив
 	var tempArrForPoints = make([]models.RoutePoint, 0, len(routes.Points))
 	for i, p := range routes.Points {
 		tempArrForPoints = append(tempArrForPoints, models.RoutePoint{
@@ -232,7 +229,6 @@ func EditRoutes(ctx *gin.Context, conn *sqlx.DB) {
             INSERT INTO route_path_points (route_id, lat, lng, sequence_order) 
             VALUES (:route_id, :lat, :lng, :sequence_order)`
 
-		// Прогоняем точки через именованный запрос внутри транзакции
 		for _, point := range tempArrForPoints {
 			_, err := tx.NamedExecContext(ctx, insertPointQuery, point)
 			if err != nil {
@@ -243,8 +239,14 @@ func EditRoutes(ctx *gin.Context, conn *sqlx.DB) {
 		}
 	}
 
-	// Обновление позиции остановки
-	for _, stop := range routes.Stops {
+	_, err = tx.ExecContext(ctx, "DELETE FROM route_stops WHERE route_id = $1", routes.ID)
+	if err != nil {
+		log.Println("Ошибка удаления старых связей остановок:", err)
+		ctx.JSON(500, gin.H{"error": "Ошибка обновления остановок: " + err.Error()})
+		return
+	}
+
+	for i, stop := range routes.Stops {
 		lat := stop.Position[0]
 		lng := stop.Position[1]
 
@@ -253,15 +255,35 @@ func EditRoutes(ctx *gin.Context, conn *sqlx.DB) {
 			lng = stop.Lon
 		}
 
-		_, err = tx.ExecContext(ctx, "UPDATE stops SET lat = $1, lng = $2 WHERE id = $3", lat, lng, stop.ID)
+		var stopID int
+		if stop.ID != 0 {
+			stopID = stop.ID
+			_, err = tx.ExecContext(ctx, "UPDATE stops SET lat = $1, lng = $2, name = $3, type = $4, radius = $5 WHERE id = $6", lat, lng, stop.Name, stop.Type, stop.Radius, stopID)
+			if err != nil {
+				log.Println("Ошибка обновления параметров остановки:", err)
+				ctx.JSON(500, gin.H{"error": "Ошибка обновления остановки: " + err.Error()})
+				return
+			}
+		} else {
+			queryInsertStop := `
+				INSERT INTO stops (name, type, lat, lng, radius) 
+				VALUES ($1, $2, $3, $4, $5) RETURNING id`
+			err = tx.QueryRowContext(ctx, queryInsertStop, stop.Name, stop.Type, lat, lng, stop.Radius).Scan(&stopID)
+			if err != nil {
+				log.Println("Ошибка создания новой остановки:", err)
+				ctx.JSON(500, gin.H{"error": "Ошибка создания остановки: " + err.Error()})
+				return
+			}
+		}
+
+		_, err = tx.ExecContext(ctx, "INSERT INTO route_stops (route_id, stop_id, sequence_order) VALUES ($1, $2, $3)", routes.ID, stopID, i)
 		if err != nil {
-			log.Println("Ошибка обновления координат остановки:", err)
-			ctx.JSON(500, gin.H{"error": "Ошибка обновления координат остановки: " + err.Error()})
+			log.Println("Ошибка связывания остановки с маршрутом:", err)
+			ctx.JSON(500, gin.H{"error": "Ошибка сохранения структуры остановок: " + err.Error()})
 			return
 		}
 	}
 
-	// Закрытие транзакции
 	if err := tx.Commit(); err != nil {
 		log.Println("Проблема закрытия транзакциии:", err)
 		ctx.JSON(500, gin.H{"error": "Не удалось зафиксировать данные в БД: " + err.Error()})
@@ -281,7 +303,6 @@ func FullTripsData(ctx *gin.Context, conn *sqlx.DB) {
 		ctx.JSON(500, gin.H{"status": "Непредвиденная ошибка", "details": err.Error()})
 		return
 	}
-	fmt.Println(routes)
 	ctx.JSON(200, routes)
 }
 

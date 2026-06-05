@@ -77,7 +77,7 @@ func Routing(r *gin.Engine, conn *sqlx.DB) {
 	pr.GET("/stops/:city", func(ctx *gin.Context) {
 		stops.FullBusStation(ctx, conn)
 	})
-	pr.DELETE("/stops/:stop_id", func(ctx *gin.Context) {
+	pr.DELETE("/stops/remove/:stop_id", func(ctx *gin.Context) {
 		stops.RemoveStops(ctx, conn)
 	})
 	//------------------------------------------------------------------------------
@@ -117,13 +117,13 @@ func Routing(r *gin.Engine, conn *sqlx.DB) {
 	//-------------------------------------------------------------------------------------
 
 	//---------------------------- REST ДЛЯ ОТПРАВКИ ОТЧЁТА -------------------------------
-	//Отправка отчёта по остановкам
-	pr.POST("/journay/stops/:bus_id", func(ctx *gin.Context) {
-		reports.GetOperationJourneyReport(ctx, conn)
+	//Отправка файла отчёта
+	pr.POST("/journey/reports/download", func(ctx *gin.Context) {
+		reports.HandleGenerateReport(ctx, conn)
 	})
-	//Отправка отчёта
-	pr.GET("/journay/violation/:bus_id", func(ctx *gin.Context) {
-		reports.GenerateViolationsExcel(ctx, conn)
+	//Отправка всей информации об отчёте
+	pr.POST("/journey/reports/list", func(ctx *gin.Context) {
+		reports.HandleGetReportsList(ctx, conn)
 	})
 	//-------------------------------------------------------------------------------------
 

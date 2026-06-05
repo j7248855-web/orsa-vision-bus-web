@@ -2,6 +2,7 @@ package reports
 
 import (
 	"fmt"
+	"orsavisionweb/internal/models"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -9,18 +10,30 @@ import (
 	"github.com/xuri/excelize/v2"
 )
 
-func GenerateViolationsExcel(ctx *gin.Context, db *sqlx.DB) (*excelize.File, error) {
-	busID := ctx.Query("bus_id")
-	if busID == "" {
-		return nil, fmt.Errorf("bus_id is required")
+func GenerateViolationsExcelFiltered(ctx *gin.Context, db *sqlx.DB, req models.ReportRequest, violationFilter string) (*excelize.File, error) {
+	query := `
+		SELECT created_at, route_num, plate_num, violation_type, value 
+		FROM bus_violations 
+		WHERE bus_id = $1 AND violation_type = $2`
+
+	var args []interface{}
+	args = append(args, req.BusID, violationFilter)
+	argCount := 3
+
+	if req.DateFrom != "" {
+		query += fmt.Sprintf(" AND created_at >= $%d::timestamp", argCount)
+		args = append(args, req.DateFrom+" 00:00:00")
+		argCount++
+	}
+	if req.DateTo != "" {
+		query += fmt.Sprintf(" AND created_at <= $%d::timestamp", argCount)
+		args = append(args, req.DateTo+" 23:59:59")
+		argCount++
 	}
 
-	rows, err := db.Queryx(`
-        SELECT created_at, route_num, plate_num, violation_type, value 
-        FROM bus_violations 
-        WHERE bus_id = $1
-        ORDER BY created_at DESC
-    `, busID)
+	query += " ORDER BY created_at DESC"
+
+	rows, err := db.QueryxContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}

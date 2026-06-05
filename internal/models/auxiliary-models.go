@@ -16,6 +16,7 @@ type Dependence struct {
 	PlanDeparture      string    `json:"plan_departure"`        // Плановое время выезда
 	PlanArrival        string    `json:"plan_arrival"`          // Плановое время приезда
 	ActualDeparture    time.Time `json:"actual_departure"`      // Реальное время выезда с конечной
+	TripSequence       int       `db:"-"`
 }
 
 // Информация про сам автобус
@@ -23,6 +24,7 @@ type BusContext struct {
 	BusID          int          `db:"bus_id"`
 	BusNumber      string       `db:"bus_number"` // Добавляем сюда ТС
 	RouteNumber    string       `db:"route_number"`
+	City           string       `db:"city"`
 	SequenceNumber int          `db:"sequence_number"`
 	Stop           []Stop       `db:"-"`
 	Points         [][2]float64 `db:"-"`

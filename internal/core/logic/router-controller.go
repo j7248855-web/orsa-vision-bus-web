@@ -60,8 +60,6 @@ func CheckDeviation(lat, lon float64, routePoints [][2]float64) models.Deviation
 			minDeviation = currentDev
 		}
 	}
-	log.Printf("Текущие координаты: Направление=[%.6f, %.6f] | Дистанция до маршрута: %.2f м",
-		lat, lon, minDeviation)
 	if minDeviation > 30.0 && minDeviation != math.MaxFloat64 {
 		tA := fmt.Sprintf("Смещение на %.2f м", minDeviation)
 		return models.DeviationResult{
