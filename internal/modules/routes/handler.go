@@ -247,8 +247,8 @@ func EditRoutes(ctx *gin.Context, conn *sqlx.DB) {
 	}
 
 	for i, stop := range routes.Stops {
-		lat := stop.Position[0]
-		lng := stop.Position[1]
+		lat := stop.Position[1]
+		lng := stop.Position[0]
 
 		if lat == 0 && lng == 0 {
 			lat = stop.Lat
