@@ -24,10 +24,18 @@ func LoadFullBusData(ip string, conn *sqlx.DB) *models.BusContext {
 	log.Printf("Автобус найден успешно. BusID: %d, RouteNumber: '%s'", ctx.BusID, ctx.RouteNumber)
 
 	err = conn.Select(&ctx.Stop, `
-		SELECT id, name, lat, lng, radius, type, city 
-		FROM stops 
-		WHERE route_id = (SELECT id FROM routes WHERE route_number = $1 LIMIT 1)
-		ORDER BY sequence_order ASC`, ctx.RouteNumber)
+        SELECT 
+            s.id, 
+            s.name, 
+            s.lat, 
+            s.lng, 
+            s.radius, 
+            rs.type, -- Берём тип (final/regular) из связки
+            s.city 
+        FROM stops s
+        JOIN route_stops rs ON s.id = rs.stop_id
+        WHERE rs.route_id = (SELECT id FROM routes WHERE route_number = $1 LIMIT 1)
+        ORDER BY rs.sequence_order ASC`, ctx.RouteNumber)
 
 	if err != nil {
 		log.Printf("Ошибка загрузки остановок для маршрута '%s': %v", ctx.RouteNumber, err)
