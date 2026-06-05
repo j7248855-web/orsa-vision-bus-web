@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math"
 	"orsavisionweb/internal/core/logic"
 	"orsavisionweb/internal/core/reports"
 	"orsavisionweb/internal/core/ws"
@@ -29,7 +30,6 @@ type GPSServer struct {
 
 func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.Status, error) {
 	serv.Mu.Lock()
-	log.Printf("Получен пакет от IP: %s, тип Payload: %T", req.DeviceIp, req.Payload)
 
 	if serv.Storage == nil {
 		serv.Storage = make(map[string]*models.BusContext)
@@ -111,17 +111,23 @@ func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.
 			// Чтобы не падать из-за отсутствия структур, используем логику "в моменте"
 			for _, v := range busCtx.Stop {
 				stopPos := []float64{v.Lat, v.Lon}
+				dLat := currentPoint[0] - v.Lat
+				dLon := currentPoint[1] - v.Lon
+				radian := currentPoint[0] * math.Pi / 180
+				dFb := dLat * 111111.0
+				dAb := (dLon * 111111.0) * math.Cos(radian)
+				dist := math.Sqrt(math.Pow(dFb, 2) + math.Pow(dAb, 2))
 
-				// Нам важно знать, был ли автобус на ЭТОЙ остановке.
-				// Твой старый код использовал общий state.IsBusStop, который ломался в цикле.
-				// Временно подменяем вызов, передавая v.ID, чтобы логика внутри понимала, с какой остановкой работает.
+				// Выводим только те остановки, до которых меньше 2 километров, чтобы не спамить консоль
+				if dist < 2000 {
+					log.Printf("[CHECK_STOP] Остановка: %s | Дистанция: %.2f метров | Радиус: %.0f", v.Name, dist, v.Radius)
+				}
 				var event *models.StopEvent
 				if timeDiff > 0 {
 					event = logic.CalculateStopStation(state, currentPoint, state.LastPoint, timeDiff, stopPos, v.Radius, actualTime, busCourse, v.Azimuth, v.ID)
 				}
 
 				if event != nil {
-					// Симулируем, что автобус остановился, чтобы затриггерить генерацию твоих отчетов
 					state.IsBusStop = true
 
 					logic.LogStopEvent(serv.DB, busCtx, v, event)
