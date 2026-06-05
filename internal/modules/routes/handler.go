@@ -2,7 +2,6 @@ package routes
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"orsavisionweb/internal/models"
 	auxuliary "orsavisionweb/internal/utils/auxiliary"
@@ -24,7 +23,6 @@ func HandleRouteWithPoints(ctx *gin.Context, conn *sqlx.DB) {
 	var route models.Route
 
 	err := json.Unmarshal([]byte(routeJsonStr), &route)
-	fmt.Println("Данные от маршрута:", route)
 	if err != nil {
 		log.Printf("Не удалось получить данные от JSON: %v", err)
 		ctx.JSON(400, gin.H{"status:": "Неправильный JSON внутри FormData", "details": err.Error()})
@@ -185,7 +183,6 @@ func EditRoutes(ctx *gin.Context, conn *sqlx.DB) {
 		ctx.JSON(400, gin.H{"error": "Не удалось распарсить JSON", "details": err.Error()})
 		return
 	}
-	fmt.Println(routes)
 	tx, err := conn.BeginTxx(ctx, nil)
 	if err != nil {
 		log.Println("Ошибка старта транзакции:", err)
