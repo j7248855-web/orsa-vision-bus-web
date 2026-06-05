@@ -185,7 +185,7 @@ func EditRoutes(ctx *gin.Context, conn *sqlx.DB) {
 		ctx.JSON(400, gin.H{"error": "Не удалось распарсить JSON", "details": err.Error()})
 		return
 	}
-
+	fmt.Println(routes)
 	tx, err := conn.BeginTxx(ctx, nil)
 	if err != nil {
 		log.Println("Ошибка старта транзакции:", err)
