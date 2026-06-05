@@ -27,10 +27,10 @@ func LoadFullBusData(ip string, conn *sqlx.DB) *models.BusContext {
         SELECT 
             s.id, 
             s.name, 
-            s.lng, 
-            s.lat, 
+            s.lng AS lat, 
+            s.lat AS lon, 
             s.radius, 
-            rs.type, -- Берём тип (final/regular) из связки
+            rs.type, 
             s.city 
         FROM stops s
         JOIN route_stops rs ON s.id = rs.stop_id
