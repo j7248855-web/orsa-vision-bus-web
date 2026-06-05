@@ -28,7 +28,7 @@ func LoadFullBusData(ip string, conn *sqlx.DB) *models.BusContext {
             s.id, 
             s.name, 
             s.lng AS lat, 
-            s.lat AS lon, 
+            s.lat AS lng, 
             s.radius, 
             rs.type, 
             s.city 
