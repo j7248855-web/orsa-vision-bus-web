@@ -134,7 +134,6 @@ func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.
 					// Твой старый блок генерации нарушения графика
 					delay := logic.CalculateDelay(event, v.Schedule)
 					if delay > 5 {
-						log.Printf("[REPORTS] Фиксация нарушения графика: +%d мин", delay)
 						reports.ViolationsReport(serv.DB, busCtx, "Нарушение графика", fmt.Sprintf("+%d мин", delay))
 					}
 
