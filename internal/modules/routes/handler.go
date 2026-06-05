@@ -229,13 +229,11 @@ func EditRoutes(ctx *gin.Context, conn *sqlx.DB) {
             INSERT INTO route_path_points (route_id, lat, lng, sequence_order) 
             VALUES (:route_id, :lat, :lng, :sequence_order)`
 
-		for _, point := range tempArrForPoints {
-			_, err := tx.NamedExecContext(ctx, insertPointQuery, point)
-			if err != nil {
-				log.Println("Проблема с добавлением в базу через NamedExec:", err)
-				ctx.JSON(500, gin.H{"status": "Не удалось добавить данные в базу", "details": err.Error()})
-				return
-			}
+		_, err = tx.NamedExecContext(ctx, insertPointQuery, tempArrForPoints)
+		if err != nil {
+			log.Println("Проблема с добавлением в базу через NamedExec:", err)
+			ctx.JSON(500, gin.H{"status": "Не удалось добавить данные в базу", "details": err.Error()})
+			return
 		}
 	}
 
@@ -258,7 +256,7 @@ func EditRoutes(ctx *gin.Context, conn *sqlx.DB) {
 		var stopID int
 		if stop.ID != 0 {
 			stopID = stop.ID
-			_, err = tx.ExecContext(ctx, "UPDATE stops SET lat = $1, lng = $2, name = $3, type = $4, radius = $5 WHERE id = $6", lat, lng, stop.Name, stop.Type, stop.Radius, stopID)
+			_, err = tx.ExecContext(ctx, "UPDATE stops SET lat = $1, lng = $2, name = $3, radius = $4 WHERE id = $5", lat, lng, stop.Name, stop.Radius, stopID)
 			if err != nil {
 				log.Println("Ошибка обновления параметров остановки:", err)
 				ctx.JSON(500, gin.H{"error": "Ошибка обновления остановки: " + err.Error()})
@@ -266,9 +264,9 @@ func EditRoutes(ctx *gin.Context, conn *sqlx.DB) {
 			}
 		} else {
 			queryInsertStop := `
-				INSERT INTO stops (name, type, lat, lng, radius) 
-				VALUES ($1, $2, $3, $4, $5) RETURNING id`
-			err = tx.QueryRowContext(ctx, queryInsertStop, stop.Name, stop.Type, lat, lng, stop.Radius).Scan(&stopID)
+                INSERT INTO stops (name, lat, lng, radius) 
+                VALUES ($1, $2, $3, $4) RETURNING id`
+			err = tx.QueryRowContext(ctx, queryInsertStop, stop.Name, lat, lng, stop.Radius).Scan(&stopID)
 			if err != nil {
 				log.Println("Ошибка создания новой остановки:", err)
 				ctx.JSON(500, gin.H{"error": "Ошибка создания остановки: " + err.Error()})
@@ -276,7 +274,7 @@ func EditRoutes(ctx *gin.Context, conn *sqlx.DB) {
 			}
 		}
 
-		_, err = tx.ExecContext(ctx, "INSERT INTO route_stops (route_id, stop_id, sequence_order) VALUES ($1, $2, $3)", routes.ID, stopID, i)
+		_, err = tx.ExecContext(ctx, "INSERT INTO route_stops (route_id, stop_id, sequence_order, type) VALUES ($1, $2, $3, $4)", routes.ID, stopID, i, stop.Type)
 		if err != nil {
 			log.Println("Ошибка связывания остановки с маршрутом:", err)
 			ctx.JSON(500, gin.H{"error": "Ошибка сохранения структуры остановок: " + err.Error()})
