@@ -27,8 +27,8 @@ func LoadFullBusData(ip string, conn *sqlx.DB) *models.BusContext {
         SELECT 
             s.id, 
             s.name, 
-            s.lat, 
             s.lng, 
+            s.lat, 
             s.radius, 
             rs.type, -- Берём тип (final/regular) из связки
             s.city 
