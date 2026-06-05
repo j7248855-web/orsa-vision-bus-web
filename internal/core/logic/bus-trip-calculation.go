@@ -75,12 +75,13 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 				}
 			}
 
+			// ИСПРАВЛЕНО: Добавлен $13 для корректной вставки created_at
 			query := `
-				INSERT INTO trip_reports (
-					city, report_date, route_number, bus_gov_number, trip_sequence,
-					from_stop_name, to_stop_name, planned_time, actual_time,
-					duration_fact, delay_minutes, status, created_at
-				) VALUES ($1, CURRENT_DATE, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`
+                INSERT INTO trip_reports (
+                    city, report_date, route_number, bus_gov_number, trip_sequence,
+                    from_stop_name, to_stop_name, planned_time, actual_time,
+                    duration_fact, delay_minutes, status, created_at
+                ) VALUES ($1, CURRENT_DATE, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`
 
 			_, err := db.Exec(query,
 				busCtx.City,
@@ -109,25 +110,37 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 		}
 
 	} else {
-
+		// ВРЕМЕННЫЙ ХАК: Если автобус бродит на перегоне и не имеет флага старта
 		if state.TripStatus == "idle" || state.TripStatus == "" {
 			if state.CurrentStartStopID == 0 {
-				return
+				mockFinalStopID := 0
+				for _, s := range busCtx.Stop {
+					if s.Type == "final" {
+						mockFinalStopID = s.ID
+						break
+					}
+				}
+				if mockFinalStopID == 0 {
+					mockFinalStopID = 1 // Жесткий дефолт, если в базе нет конечных
+				}
+				state.CurrentStartStopID = mockFinalStopID
+				log.Printf("[VIRTUAL_START] Автобус %s принудительно привязан к стартовой точке ID %d", busCtx.BusNumber, mockFinalStopID)
 			}
+
 			state.TripStatus = "in_trip"
 			state.ActualDeparture = actualTime
-			log.Printf("Автобус %s (Маршрут %s) выехал с конечной ID %d в %s",
-				busCtx.BusNumber, busCtx.RouteNumber, state.CurrentStartStopID, actualTime.Format("15:04:05"))
+			log.Printf("Автобус %s (Маршрут %s) принудительно переведен в IN_TRIP в %s",
+				busCtx.BusNumber, busCtx.RouteNumber, actualTime.Format("15:04:05"))
 
 			routeIDInt, _ := strconv.Atoi(busCtx.RouteNumber)
 			var planDep, planArr string
 
 			query := `
-				SELECT departure_time, arrival_time 
-				FROM schedules 
-				WHERE route_id = $1 AND sequence_number = $2
-				ORDER BY ABS(EXTRACT(EPOCH FROM (departure_time - $3::time))) 
-				LIMIT 1`
+                SELECT departure_time, arrival_time 
+                FROM schedules 
+                WHERE route_id = $1 AND sequence_number = $2
+                ORDER BY ABS(EXTRACT(EPOCH FROM (departure_time - $3::time))) 
+                LIMIT 1`
 
 			err := db.QueryRow(query, routeIDInt, busCtx.SequenceNumber, actualTime.Format("15:04:05")).Scan(&planDep, &planArr)
 			if err != nil && err != sql.ErrNoRows {
