@@ -101,9 +101,9 @@ func HandleRouteWithPoints(ctx *gin.Context, conn *sqlx.DB) {
 
 	for i, stop := range route.Stops {
 		_, err = tx.ExecContext(ctx, `
-            INSERT INTO route_stops (route_id, stop_id, sequence_order) 
-            VALUES ($1, $2, $3)`,
-			actualRouteID, stop.ID, i)
+            INSERT INTO route_stops (route_id, stop_id, sequence_order, type) 
+            VALUES ($1, $2, $3, $4)`,
+			actualRouteID, stop.ID, i, stop.Type)
 
 		if err != nil {
 			log.Println("Не удалось добавить остановки для маршрута:", err)
