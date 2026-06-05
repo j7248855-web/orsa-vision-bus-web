@@ -35,11 +35,11 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 		return
 	}
 
+	// 1. Ищем, находится ли автобус в радиусе какой-либо конечной прямо сейчас
 	var activeFinalStop *models.Stop = nil
 	for i := range busCtx.Stop {
 		if busCtx.Stop[i].Type == "final" {
 			dist := CalculateDistance(currentPoint[0], currentPoint[1], busCtx.Stop[i].Lat, busCtx.Stop[i].Lon)
-
 			if dist <= float64(busCtx.Stop[i].Radius) {
 				activeFinalStop = &busCtx.Stop[i]
 				break
@@ -47,7 +47,9 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 		}
 	}
 
+	// 2. Логика, если мы НА конечной
 	if activeFinalStop != nil {
+		// Если автобус был в рейсе и приехал на СЛЕДУЮЩУЮ конечную — закрываем рейс
 		if state.TripStatus == "in_trip" && state.CurrentStartStopID != activeFinalStop.ID {
 			state.TripSequence++
 
@@ -75,15 +77,17 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 				}
 			}
 
+			// ИСПРАВЛЕНО: Убран хардкод CURRENT_DATE из VALUES, чтобы мапинг $1-$12 шел строго по порядку колонок
 			query := `
-				INSERT INTO trip_reports (
-					city, report_date, route_number, bus_gov_number, trip_sequence,
-					from_stop_name, to_stop_name, planned_time, actual_time,
-					duration_fact, delay_minutes, status, created_at
-				) VALUES ($1, CURRENT_DATE, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`
+                INSERT INTO trip_reports (
+                    city, report_date, route_number, bus_gov_number, trip_sequence,
+                    from_stop_name, to_stop_name, planned_time, actual_time,
+                    duration_fact, delay_minutes, status, created_at
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`
 
 			_, err := db.Exec(query,
 				busCtx.City,
+				actualTime.Format("2006-01-02"), // Передаем дату явно как $2
 				busCtx.RouteNumber,
 				busCtx.BusNumber,
 				state.TripSequence,
@@ -103,17 +107,23 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 			state.TripStatus = "idle"
 			state.CurrentStartStopID = activeFinalStop.ID
 
-		} else if state.TripStatus == "" {
+		} else if state.TripStatus == "" || state.TripStatus == "idle" {
+			// Если статус был пустой (первый запуск сервера) и мы стоим на конечной —
+			// инициализируем корректную конечную точку. Без хаков.
 			state.TripStatus = "idle"
 			state.CurrentStartStopID = activeFinalStop.ID
 		}
 
+		// 3. Логика, если мы В ПУТИ (вне конечных)
 	} else {
-
-		if state.TripStatus == "idle" || state.TripStatus == "" {
+		// Если автобус стоял на конечной (idle) и вышел из её радиуса (activeFinalStop стал nil)
+		// Начинаем новый рейс!
+		if state.TripStatus == "idle" {
+			// Защита: если ID конечной почему-то остался 0, мы не можем начать рейс, выходим.
 			if state.CurrentStartStopID == 0 {
 				return
 			}
+
 			state.TripStatus = "in_trip"
 			state.ActualDeparture = actualTime
 			log.Printf("Автобус %s (Маршрут %s) выехал с конечной ID %d в %s",
@@ -123,11 +133,11 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 			var planDep, planArr string
 
 			query := `
-				SELECT departure_time, arrival_time 
-				FROM schedules 
-				WHERE route_id = $1 AND sequence_number = $2
-				ORDER BY ABS(EXTRACT(EPOCH FROM (departure_time - $3::time))) 
-				LIMIT 1`
+                SELECT departure_time, arrival_time 
+                FROM schedules 
+                WHERE route_id = $1 AND sequence_number = $2
+                ORDER BY ABS(EXTRACT(EPOCH FROM (departure_time - $3::time))) 
+                LIMIT 1`
 
 			err := db.QueryRow(query, routeIDInt, busCtx.SequenceNumber, actualTime.Format("15:04:05")).Scan(&planDep, &planArr)
 			if err != nil && err != sql.ErrNoRows {
@@ -137,5 +147,8 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 			state.PlanDeparture = planDep
 			state.PlanArrival = planArr
 		}
+
+		// Если state.TripStatus == "" (сервер только включился, а автобус уже едет где-то посередине трассы) —
+		// мы ничего не делаем и просто ждем, пока он доедет до следующей конечной, чтобы не плодить битые рейсы.
 	}
 }
