@@ -41,9 +41,9 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 		if busCtx.Stop[i].Type == "final" {
 			dist := CalculateDistance(currentPoint[0], currentPoint[1], busCtx.Stop[i].Lat, busCtx.Stop[i].Lon)
 
-			// ВОТ ЭТОТ ЛОГ ВСЁ ПОКАЖЕТ:
-			log.Printf("[DEBUG_DIST] Автобус (%f, %f) | Конечная %s (%f, %f) | Дистанция: %.2f метров | Радиус: %d",
-				currentPoint[0], currentPoint[1], busCtx.Stop[i].Name, busCtx.Stop[i].Lat, busCtx.Stop[i].Lon, dist, busCtx.Stop[i].Radius)
+			// Исправленный дебаг-лог (теперь без ошибок выводит радиус)
+			log.Printf("[DEBUG_DIST] Автобус (%f, %f) | Конечная %s (%f, %f) | Дистанция: %.2f метров | Радиус: %.0f",
+				currentPoint[0], currentPoint[1], busCtx.Stop[i].Name, busCtx.Stop[i].Lat, busCtx.Stop[i].Lon, dist, float64(busCtx.Stop[i].Radius))
 
 			if dist <= float64(busCtx.Stop[i].Radius) {
 				activeFinalStop = &busCtx.Stop[i]
@@ -52,9 +52,8 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 		}
 	}
 
-	// 2. Логика, если мы НА конечной
+	// 2. Логика, если мы НА конечной (Штатный заезд)
 	if activeFinalStop != nil {
-		// Если автобус был в рейсе и приехал на СЛЕДУЮЩУЮ конечную — закрываем рейс
 		if state.TripStatus == "in_trip" && state.CurrentStartStopID != activeFinalStop.ID {
 			state.TripSequence++
 
@@ -82,7 +81,6 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 				}
 			}
 
-			// ИСПРАВЛЕНО: Убран хардкод CURRENT_DATE из VALUES, чтобы мапинг $1-$12 шел строго по порядку колонок
 			query := `
                 INSERT INTO trip_reports (
                     city, report_date, route_number, bus_gov_number, trip_sequence,
@@ -92,7 +90,7 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 
 			_, err := db.Exec(query,
 				busCtx.City,
-				actualTime.Format("2006-01-02"), // Передаем дату явно как $2
+				actualTime.Format("2006-01-02"),
 				busCtx.RouteNumber,
 				busCtx.BusNumber,
 				state.TripSequence,
@@ -113,18 +111,14 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 			state.CurrentStartStopID = activeFinalStop.ID
 
 		} else if state.TripStatus == "" || state.TripStatus == "idle" {
-			// Если статус был пустой (первый запуск сервера) и мы стоим на конечной —
-			// инициализируем корректную конечную точку. Без хаков.
 			state.TripStatus = "idle"
 			state.CurrentStartStopID = activeFinalStop.ID
 		}
 
 		// 3. Логика, если мы В ПУТИ (вне конечных)
 	} else {
-		// Если автобус стоял на конечной (idle) и вышел из её радиуса (activeFinalStop стал nil)
-		// Начинаем новый рейс!
+		// ШТАТНЫЙ ВЫЕЗД: Если автобус стоял на конечной (idle) и вышел из её радиуса
 		if state.TripStatus == "idle" {
-			// Защита: если ID конечной почему-то остался 0, мы не можем начать рейс, выходим.
 			if state.CurrentStartStopID == 0 {
 				return
 			}
@@ -153,7 +147,51 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 			state.PlanArrival = planArr
 		}
 
-		// Если state.TripStatus == "" (сервер только включился, а автобус уже едет где-то посередине трассы) —
-		// мы ничего не делаем и просто ждем, пока он доедет до следующей конечной, чтобы не плодить битые рейсы.
+		// ====================================================================
+		// ВРЕМЕННЫЙ ФОРСИРОВАННЫЙ СТАРТ ДЛЯ ТЕСТОВ
+		// ====================================================================
+		if state.TripStatus == "" {
+			minDist := 99999999.0
+			closestFinalStopID := 0
+
+			// Ищем, какая конечная тупо ближе к нему географически прямо сейчас
+			for i := range busCtx.Stop {
+				if busCtx.Stop[i].Type == "final" {
+					dist := CalculateDistance(currentPoint[0], currentPoint[1], busCtx.Stop[i].Lat, busCtx.Stop[i].Lon)
+					if dist < minDist {
+						minDist = dist
+						closestFinalStopID = busCtx.Stop[i].ID
+					}
+				}
+			}
+
+			// Если нашли ближайшую конечную, принудительно открываем рейс прямо с дороги
+			if closestFinalStopID != 0 {
+				state.CurrentStartStopID = closestFinalStopID
+				state.TripStatus = "in_trip"
+				state.ActualDeparture = actualTime
+
+				log.Printf("[FORCE_START] Автобус %s пойман на дороге! Привязан к ближайшей конечной ID %d. Статус переведен в IN_TRIP.",
+					busCtx.BusNumber, closestFinalStopID)
+
+				// Сразу подтягиваем под этот фейковый старт расписание, чтобы логика не путалась
+				routeIDInt, _ := strconv.Atoi(busCtx.RouteNumber)
+				var planDep, planArr string
+				query := `
+                    SELECT departure_time, arrival_time 
+                    FROM schedules 
+                    WHERE route_id = $1 AND sequence_number = $2
+                    ORDER BY ABS(EXTRACT(EPOCH FROM (departure_time - $3::time))) 
+                    LIMIT 1`
+
+				err := db.QueryRow(query, routeIDInt, busCtx.SequenceNumber, actualTime.Format("15:04:05")).Scan(&planDep, &planArr)
+				if err != nil && err != sql.ErrNoRows {
+					log.Println("Не удалось достать расписание при FORCE_START:", err)
+				}
+				state.PlanDeparture = planDep
+				state.PlanArrival = planArr
+			}
+		}
+		// ====================================================================
 	}
 }
