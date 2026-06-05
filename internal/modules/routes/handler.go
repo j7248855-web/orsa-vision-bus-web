@@ -151,7 +151,7 @@ func GetTripInformation(ctx *gin.Context, conn *sqlx.DB) {
 				s.lat, 
 				s.lng, 
 				s.radius, 
-				s.type, 
+				rs.type, 
 				s.azimuth, 
 				s.city 
 			FROM stops s
