@@ -83,7 +83,7 @@ func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.
 
 		logic.ProcessTripState(serv.DB, busCtx, currentPoint, actualTime)
 
-		log.Printf("[DEBUG] Автобус ID: %d, Статус рейса: '%s', Текущая конечная ID: %d", busCtx.BusID, state.TripStatus, state.CurrentStartStopID)
+		log.Printf("Автобус ID: %d, Статус рейса: '%s', Текущая конечная ID: %d", busCtx.BusID, state.TripStatus, state.CurrentStartStopID)
 
 		go serv.Conns.SendLocation(gin.H{
 			"bus_id": busCtx.BusID,
