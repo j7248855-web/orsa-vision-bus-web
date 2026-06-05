@@ -30,7 +30,7 @@ type GPSServer struct {
 func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.Status, error) {
 	serv.Mu.Lock()
 	log.Printf("Получен пакет от IP: %s, тип Payload: %T", req.DeviceIp, req.Payload)
-	defer serv.Mu.Unlock()
+
 	if serv.Storage == nil {
 		serv.Storage = make(map[string]*models.BusContext)
 	}
@@ -41,27 +41,29 @@ func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.
 
 	if isBlocked {
 		if time.Now().Before(blockedUntil) {
+			serv.Mu.Unlock()
 			return &gps_pt.Status{Status: false}, nil
 		}
 		delete(serv.NonExisenIPs, req.DeviceIp)
 	}
-	//Берём данные про айпишник
+
 	busCtx, ok := serv.Storage[req.DeviceIp]
 	if !ok {
 		busCtx = auxuliary.LoadFullBusData(req.DeviceIp, serv.DB)
 		if busCtx == nil {
 			serv.NonExisenIPs[req.DeviceIp] = time.Now().Add(10 * time.Minute)
+			serv.Mu.Unlock()
 			return &gps_pt.Status{Status: false}, nil
 		}
 		serv.Storage[req.DeviceIp] = busCtx
 	}
+	// ВРЕМЕННО: Отпускаем лок сразу, чтобы тяжелые вычисления и запросы к БД выполнялись параллельно
+	serv.Mu.Unlock()
 
 	state := busCtx.State
-	//Взять busID от базы (IP)
+
 	switch data := req.Payload.(type) {
-	//Определяем что за херня чтобы отправить дальше
 	case *gps_pt.GPSData_Rmc:
-		//Берём азимут остановки
 		busCourse, _ := strconv.ParseFloat(data.Rmc.TrackTrue, 64)
 		lat := auxuliary.ConvertNMEAToDecimal(data.Rmc.Lat, data.Rmc.LatDir)
 		lon := auxuliary.ConvertNMEAToDecimal(data.Rmc.Lon, data.Rmc.LonDir)
@@ -70,7 +72,7 @@ func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.
 		if state.LastPoint == nil {
 			state.LastPoint = currentPoint
 		}
-		//Триггер на просмотр остановки автобуса, на автобусных остановках
+
 		now := time.Now()
 		gpsTime, err := time.Parse("150405.00", data.Rmc.Utc)
 		if err != nil {
@@ -79,15 +81,20 @@ func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.
 		actualTime := time.Date(
 			now.Year(), now.Month(), now.Day(),
 			gpsTime.Hour(), gpsTime.Minute(), gpsTime.Second(), 0, time.UTC)
-		//Рассчёт вхождения
+
+		// Расчёт поездки (с временным хаком внутри)
 		logic.ProcessTripState(serv.DB, busCtx, currentPoint, actualTime)
+
+		// Лог состояния для контроля
+		log.Printf("[DEBUG] Автобус ID: %d, Статус рейса: '%s', Текущая конечная ID: %d", busCtx.BusID, state.TripStatus, state.CurrentStartStopID)
+
 		go serv.Conns.SendLocation(gin.H{
 			"bus_id": busCtx.BusID,
 			"lat":    lat,
 			"lon":    lon,
 			"course": busCourse,
 		})
-		//Вычисление отклонения маршрута от нормы
+
 		var deviation models.DeviationResult
 		if busCtx.State.TripStatus == "in_trip" {
 			deviation = logic.CheckDeviation(lat, lon, busCtx.Points)
@@ -99,27 +106,29 @@ func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.
 		timeDiff = actualTime.Sub(state.LastTime)
 		if busCtx.State.TripStatus == "in_trip" {
 			if deviation.IsOffRoute {
+				log.Printf("[REPORTS] Фиксация выхода с маршрута для автобуса %d, Значение: %v", busCtx.BusID, deviation.Value)
 				reports.ViolationsReport(serv.DB, busCtx, "Выход с маршрута", deviation.Value)
 			}
 			for _, v := range busCtx.Stop {
 				stopPos := []float64{v.Lat, v.Lon}
-				wasAtStop := state.IsBusStop //Смотрим ли был он на этой остановке до расчёта
+				wasAtStop := state.IsBusStop
 				var event *models.StopEvent
 				if timeDiff > 0 {
 					event = logic.CalculateStopStation(state, currentPoint, state.LastPoint, timeDiff, stopPos, v.Radius, actualTime, busCourse, v.Azimuth)
 				}
-				//Вычисление времени прибытия автобуса на остановку
-				//Формируем отчёт по остановкам
+
 				if event != nil {
 					logic.LogStopEvent(serv.DB, busCtx, v, event)
 
-					if event.IsSkipped { //Отправка нарушения по остановкам
+					if event.IsSkipped {
+						log.Printf("[REPORTS] Фиксация пропуска остановки: %s", v.Name)
 						reports.ViolationsReport(serv.DB, busCtx, "Пропуск остановки ", fmt.Sprintf("Остановка \"%v\" пропущена", v.Name))
 					}
 
 					if !wasAtStop && state.IsBusStop && !event.IsSkipped {
 						delay := logic.CalculateDelay(event, v.Schedule)
-						if delay > 5 { // Порог 5 минут
+						if delay > 5 {
+							log.Printf("[REPORTS] Фиксация нарушения графика: +%d мин", delay)
 							reports.ViolationsReport(serv.DB, busCtx, "Нарушение графика", fmt.Sprintf("+%d мин", delay))
 						}
 					}
