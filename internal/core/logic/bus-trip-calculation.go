@@ -13,7 +13,7 @@ import (
 )
 
 // Cчитает расстояние между автобусом и конечной в метрах
-func CalculateDistance(busLat, busLon, finalStopLat, finalStopLon float64) float64 {
+func CalculateDistance(busLon, busLat, finalStopLon, finalStopLat float64) float64 {
 	const R = 6371000
 	const rad = math.Pi / 180
 	lat1 := busLat * rad
