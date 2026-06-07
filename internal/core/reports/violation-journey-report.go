@@ -14,7 +14,7 @@ func GenerateViolationsExcelFiltered(ctx *gin.Context, db *sqlx.DB, req models.R
 	query := `
 		SELECT created_at, route_num, plate_num, violation_type, value 
 		FROM bus_violations 
-		WHERE bus_id = $1 AND violation_type = $2`
+		WHERE bus_id = $1 AND TRIM(violation_type) = TRIM($2)`
 
 	var args []interface{}
 	args = append(args, req.BusID, violationFilter)

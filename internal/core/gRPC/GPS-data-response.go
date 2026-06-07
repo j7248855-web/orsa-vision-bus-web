@@ -125,7 +125,7 @@ func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.
 					logic.LogStopEvent(serv.DB, busCtx, v, event)
 
 					if event.IsSkipped {
-						reports.ViolationsReport(serv.DB, busCtx, "Пропуск остановки ", fmt.Sprintf("Остановка \"%v\" пропущена", v.Name))
+						reports.ViolationsReport(serv.DB, busCtx, "Пропуск остановки", fmt.Sprintf("Остановка \"%v\" пропущена", v.Name))
 					}
 
 					serv.Mu.Lock()

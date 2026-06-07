@@ -80,7 +80,7 @@ func HandleGetReportsList(ctx *gin.Context, conn *sqlx.DB) {
 	case "operational":
 		list = append(list, models.ReportListItem{
 			ReportID:   fmt.Sprintf("op_%d_%s", req.BusID, time.Now().Format("20060102")),
-			ReportName: fmt.Sprintf("Оперативный отчет по рейсам (Автобус ID %d)", req.BusID),
+			ReportName: "Оперативный отчет по рейсам",
 			ReportType: "operational",
 			BusID:      req.BusID,
 			DateRange:  dateRange,
@@ -88,7 +88,7 @@ func HandleGetReportsList(ctx *gin.Context, conn *sqlx.DB) {
 	case "violations_trip":
 		list = append(list, models.ReportListItem{
 			ReportID:   fmt.Sprintf("viol_trip_%d_%s", req.BusID, time.Now().Format("20060102")),
-			ReportName: fmt.Sprintf("Отчет по нарушениям: Выход с маршрута (Автобус ID %d)", req.BusID),
+			ReportName: "Отчет по нарушениям: Выход с маршрута",
 			ReportType: "violations_trip",
 			BusID:      req.BusID,
 			DateRange:  dateRange,
@@ -96,7 +96,7 @@ func HandleGetReportsList(ctx *gin.Context, conn *sqlx.DB) {
 	case "violations_stops":
 		list = append(list, models.ReportListItem{
 			ReportID:   fmt.Sprintf("viol_stops_%d_%s", req.BusID, time.Now().Format("20060102")),
-			ReportName: fmt.Sprintf("Отчет по нарушениям: Пропуск остановки (Автобус ID %d)", req.BusID),
+			ReportName: "Отчет по нарушениям: Пропуск остановки",
 			ReportType: "violations_stops",
 			BusID:      req.BusID,
 			DateRange:  dateRange,
