@@ -73,12 +73,15 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 			if state.PlanArrival != "" {
 				parsedPlanStr, err := time.Parse("15:04:05", state.PlanArrival)
 				if err == nil {
+					localActual := actualTime.Local()
+
 					planTime := time.Date(
-						actualTime.Year(), actualTime.Month(), actualTime.Day(),
-						parsedPlanStr.Hour(), parsedPlanStr.Minute(), parsedPlanStr.Second(), 0, actualTime.Location(),
+						localActual.Year(), localActual.Month(), localActual.Day(),
+						parsedPlanStr.Hour(), parsedPlanStr.Minute(), parsedPlanStr.Second(), 0,
+						localActual.Location(),
 					)
-					if actualTime.After(planTime) {
-						delayMinutes = int(actualTime.Sub(planTime).Minutes())
+					if localActual.After(planTime) {
+						delayMinutes = int(localActual.Sub(planTime).Minutes())
 					}
 				}
 			}
@@ -106,7 +109,7 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 				actualTime.Format("15:04:05"),
 				durationFactStr,
 				delayMinutes,
-				"completed",
+				"Завершено",
 				actualTime,
 			)
 			if err != nil {
