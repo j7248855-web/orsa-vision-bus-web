@@ -134,7 +134,7 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 			state.ActualDeparture = actualTime
 			log.Printf("[DEBUG] ТРИГГЕР СТАРТА: Автобус %s выехал с конечной ID %d в %s",
 				busCtx.BusNumber, state.CurrentStartStopID, actualTime.Format("15:04:05"))
-			var planDep, planArr string
+			var planDep, planArr time.Time
 
 			query := `
     SELECT s.departure_time, s.arrival_time 
@@ -145,12 +145,17 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
     LIMIT 1`
 
 			err := db.QueryRow(query, busCtx.RouteNumber, busCtx.SequenceNumber, actualTime.Format("15:04:05")).Scan(&planDep, &planArr)
-			if err != nil && err != sql.ErrNoRows {
-				log.Println("[ERROR] Не удалось достать расписание:", err)
+			if err != nil {
+				if err != sql.ErrNoRows {
+					log.Println("[ERROR] Не удалось достать расписание:", err)
+				}
+				state.PlanDeparture = ""
+				state.PlanArrival = ""
+			} else {
+				// Вот тут магия: превращаем объект времени в чистую строку "19:10:00"
+				state.PlanDeparture = planDep.Format("15:04:05")
+				state.PlanArrival = planArr.Format("15:04:05")
 			}
-
-			state.PlanDeparture = planDep
-			state.PlanArrival = planArr
 		}
 
 		if state.TripStatus == "" {
