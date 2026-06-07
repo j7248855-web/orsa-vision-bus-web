@@ -1,6 +1,7 @@
 package logic
 
 import (
+	"fmt"
 	"math"
 	"orsavisionweb/internal/models"
 	"time"
@@ -40,6 +41,7 @@ func RadiusCalculation(busPos, stopPos []float64, radius float64) bool {
 
 // Добавили stopID в конец аргументов, чтобы изолировать логику
 func CalculateStopStation(d *models.Dependence, busPos []float64, lastBusPos []float64, timeDiff time.Duration, stopPos []float64, stopRadius float64, actualTime time.Time, busCourse float64, stopAzimuth float64, stopID int) *models.StopEvent {
+	fmt.Println("Зашло в функцию")
 	// Проверка азимута направления
 	angleDiff := math.Mod(math.Abs(busCourse-stopAzimuth), 360)
 	if angleDiff > 180 {

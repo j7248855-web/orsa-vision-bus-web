@@ -120,7 +120,7 @@ func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.
 
 				// Выводим только те остановки, до которых меньше 2 километров, чтобы не спамить консоль
 				if dist < 2000 {
-					log.Printf("[CHECK_STOP] Остановка: %s | Дистанция: %.2f метров | Радиус: %.0f", v.Name, dist, v.Radius)
+					log.Printf("Остановка: %s | Дистанция: %.2f метров | Радиус: %.0f", v.Name, dist, v.Radius)
 				}
 				var event *models.StopEvent
 				if timeDiff > 0 {
