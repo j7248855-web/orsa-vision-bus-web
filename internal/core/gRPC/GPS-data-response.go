@@ -108,7 +108,6 @@ func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.
 			for _, v := range busCtx.Stop {
 				stopPos := []float64{v.Lat, v.Lon}
 				event := logic.CalculateStopStation(state, currentPoint, state.LastPoint, timeDiff, stopPos, v.Radius, actualTime, busCourse, v.Azimuth)
-				fmt.Println()
 				if event != nil {
 					state.IsBusStop = true
 
