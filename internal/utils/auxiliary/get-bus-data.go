@@ -10,9 +10,15 @@ import (
 func LoadFullBusData(ip string, conn *sqlx.DB) *models.BusContext {
 	ctx := &models.BusContext{}
 	err := conn.Get(ctx, `
-		SELECT b.id as bus_id, b.route_number as route_number, b.sequence_number as sequence_number
+		SELECT 
+			b.id AS bus_id, 
+			b.route_number AS route_number, 
+			b.sequence_number AS sequence_number,
+			b.gov_number AS bus_number,
+			r.city AS city
 		FROM devices d
 		JOIN buses b ON d.bus_id = b.id
+		JOIN routes r ON b.route_id = r.id
 		WHERE d.device_ip = $1 AND d.type = 'teltonic' 
 		LIMIT 1`, ip)
 
