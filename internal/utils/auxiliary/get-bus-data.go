@@ -14,11 +14,10 @@ func LoadFullBusData(ip string, conn *sqlx.DB) *models.BusContext {
 			b.id AS bus_id, 
 			b.route_number AS route_number, 
 			b.sequence_number AS sequence_number,
-			b.gov_number AS bus_number,
-			r.city AS city
+			b.bus_number AS bus_number,
+			b.city AS city
 		FROM devices d
 		JOIN buses b ON d.bus_id = b.id
-		JOIN routes r ON b.route_id = r.id
 		WHERE d.device_ip = $1 AND d.type = 'teltonic' 
 		LIMIT 1`, ip)
 
