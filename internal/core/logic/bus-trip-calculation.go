@@ -6,7 +6,6 @@ import (
 	"log"
 	"math"
 	"orsavisionweb/internal/models"
-	"strconv"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -83,7 +82,10 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 					}
 				}
 			}
-
+			var safePlannedTime interface{} = nil
+			if state.PlanArrival != "" {
+				safePlannedTime = state.PlanArrival
+			}
 			query := `
 				INSERT INTO trip_reports (
 					city, report_date, route_number, bus_gov_number, trip_sequence,
@@ -100,7 +102,7 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 				state.TripSequence,
 				fromStopName,
 				activeFinalStop.Name,
-				state.PlanArrival,
+				safePlannedTime,
 				actualTime.Format("15:04:05"),
 				durationFactStr,
 				delayMinutes,
@@ -132,18 +134,17 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 			state.ActualDeparture = actualTime
 			log.Printf("[DEBUG] ТРИГГЕР СТАРТА: Автобус %s выехал с конечной ID %d в %s",
 				busCtx.BusNumber, state.CurrentStartStopID, actualTime.Format("15:04:05"))
-
-			routeIDInt, _ := strconv.Atoi(busCtx.RouteNumber)
 			var planDep, planArr string
 
 			query := `
-				SELECT departure_time, arrival_time 
-				FROM schedules 
-				WHERE route_id = $1 AND sequence_number = $2
-				ORDER BY ABS(EXTRACT(EPOCH FROM (departure_time - $3::time))) 
-				LIMIT 1`
+    SELECT s.departure_time, s.arrival_time 
+    FROM schedules s
+    JOIN routes r ON s.route_id = r.id
+    WHERE r.route_number = $1 AND s.sequence_number = $2
+    ORDER BY ABS(EXTRACT(EPOCH FROM (s.departure_time - $3::time))) 
+    LIMIT 1`
 
-			err := db.QueryRow(query, routeIDInt, busCtx.SequenceNumber, actualTime.Format("15:04:05")).Scan(&planDep, &planArr)
+			err := db.QueryRow(query, busCtx.RouteNumber, busCtx.SequenceNumber, actualTime.Format("15:04:05")).Scan(&planDep, &planArr)
 			if err != nil && err != sql.ErrNoRows {
 				log.Println("[ERROR] Не удалось достать расписание:", err)
 			}
@@ -172,16 +173,16 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 				state.TripStatus = "in_trip"
 				state.ActualDeparture = actualTime
 
-				routeIDInt, _ := strconv.Atoi(busCtx.RouteNumber)
 				var planDep, planArr string
 				query := `
-					SELECT departure_time, arrival_time 
-					FROM schedules 
-					WHERE route_id = $1 AND sequence_number = $2
-					ORDER BY ABS(EXTRACT(EPOCH FROM (departure_time - $3::time))) 
+					SELECT s.departure_time, s.arrival_time 
+					FROM schedules s
+					JOIN routes r ON s.route_id = r.id
+					WHERE r.route_number = $1 AND s.sequence_number = $2
+					ORDER BY ABS(EXTRACT(EPOCH FROM (s.departure_time - $3::time))) 
 					LIMIT 1`
 
-				err := db.QueryRow(query, routeIDInt, busCtx.SequenceNumber, actualTime.Format("15:04:05")).Scan(&planDep, &planArr)
+				err := db.QueryRow(query, busCtx.RouteNumber, busCtx.SequenceNumber, actualTime.Format("15:04:05")).Scan(&planDep, &planArr)
 				if err != nil && err != sql.ErrNoRows {
 					log.Println("[ERROR] Не удалось достать расписание при FORCE_START:", err)
 				}
