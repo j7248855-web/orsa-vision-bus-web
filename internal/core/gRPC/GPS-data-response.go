@@ -122,11 +122,7 @@ func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.
 				if dist < 2000 {
 					log.Printf("Остановка: %s | Дистанция: %.2f метров | Радиус: %.0f", v.Name, dist, v.Radius)
 				}
-				var event *models.StopEvent
-				if timeDiff > 0 {
-					fmt.Println("ЗАХОДИТ БЛЯТЬ В ФУНКЦИЮ")
-					event = logic.CalculateStopStation(state, currentPoint, state.LastPoint, timeDiff, stopPos, v.Radius, actualTime, busCourse, v.Azimuth)
-				}
+				event := logic.CalculateStopStation(state, currentPoint, state.LastPoint, timeDiff, stopPos, v.Radius, actualTime, busCourse, v.Azimuth)
 				fmt.Println()
 				if event != nil {
 					state.IsBusStop = true
