@@ -32,24 +32,31 @@ func CalculateDistance(busLat, busLon, finalStopLat, finalStopLon float64) float
 func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []float64, actualTime time.Time) {
 	state := busCtx.State
 	if state == nil {
+		log.Println("[DEBUG] State у автобуса nil")
 		return
 	}
 
-	// 1. Ищем, находится ли автобус в радиусе какой-либо конечной прямо сейчас
 	var activeFinalStop *models.Stop = nil
 	for i := range busCtx.Stop {
 		if busCtx.Stop[i].Type == "final" {
 			dist := CalculateDistance(currentPoint[0], currentPoint[1], busCtx.Stop[i].Lat, busCtx.Stop[i].Lon)
 
+			// Лог для проверки геометрии
+			log.Printf("[DEBUG] Автобус %s до конечной %s (%d) = %.2f м. Радиус: %d",
+				busCtx.BusNumber, busCtx.Stop[i].Name, busCtx.Stop[i].ID, dist, busCtx.Stop[i].Radius)
+
 			if dist <= float64(busCtx.Stop[i].Radius) {
 				activeFinalStop = &busCtx.Stop[i]
+				log.Printf("[DEBUG] Автобус внутри конечной: %s", activeFinalStop.Name)
 				break
 			}
 		}
 	}
 
-	// 2. Логика, если мы НА конечной (Штатный заезд)
 	if activeFinalStop != nil {
+		log.Printf("[DEBUG] Проверка триггера финиша. Текущий статус: %s, Стартовый ID конечной: %d, Текущий ID конечной: %d",
+			state.TripStatus, state.CurrentStartStopID, activeFinalStop.ID)
+
 		if state.TripStatus == "in_trip" && state.CurrentStartStopID != activeFinalStop.ID {
 			state.TripSequence++
 
@@ -78,12 +85,13 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 			}
 
 			query := `
-                INSERT INTO trip_reports (
-                    city, report_date, route_number, bus_gov_number, trip_sequence,
-                    from_stop_name, to_stop_name, planned_time, actual_time,
-                    duration_fact, delay_minutes, status, created_at
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`
+				INSERT INTO trip_reports (
+					city, report_date, route_number, bus_gov_number, trip_sequence,
+					from_stop_name, to_stop_name, planned_time, actual_time,
+					duration_fact, delay_minutes, status, created_at
+				) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`
 
+			log.Printf("[DEBUG] Пробуем выполнить INSERT для рейса %d...", state.TripSequence)
 			_, err := db.Exec(query,
 				busCtx.City,
 				actualTime.Format("2006-01-02"),
@@ -100,7 +108,9 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 				actualTime,
 			)
 			if err != nil {
-				log.Println("Не удалось записать оперативный отчет рейса:", err)
+				log.Println("[ERROR] Ошибка выполнения INSERT в trip_reports:", err)
+			} else {
+				log.Println("[SUCCESS] Отчет рейса успешно записан в базу!")
 			}
 
 			state.TripStatus = "idle"
@@ -111,9 +121,8 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 			state.CurrentStartStopID = activeFinalStop.ID
 		}
 
-		// 3. Логика, если мы В ПУТИ (вне конечных)
 	} else {
-		// ШТАТНЫЙ ВЫЕЗД: Если автобус стоял на конечной (idle) и вышел из её радиуса
+		// Логика когда автобус вне конечных остановок
 		if state.TripStatus == "idle" {
 			if state.CurrentStartStopID == 0 {
 				return
@@ -121,36 +130,33 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 
 			state.TripStatus = "in_trip"
 			state.ActualDeparture = actualTime
-			log.Printf("Автобус %s (Маршрут %s) выехал с конечной ID %d в %s",
-				busCtx.BusNumber, busCtx.RouteNumber, state.CurrentStartStopID, actualTime.Format("15:04:05"))
+			log.Printf("[DEBUG] ТРИГГЕР СТАРТА: Автобус %s выехал с конечной ID %d в %s",
+				busCtx.BusNumber, state.CurrentStartStopID, actualTime.Format("15:04:05"))
 
 			routeIDInt, _ := strconv.Atoi(busCtx.RouteNumber)
 			var planDep, planArr string
 
 			query := `
-                SELECT departure_time, arrival_time 
-                FROM schedules 
-                WHERE route_id = $1 AND sequence_number = $2
-                ORDER BY ABS(EXTRACT(EPOCH FROM (departure_time - $3::time))) 
-                LIMIT 1`
+				SELECT departure_time, arrival_time 
+				FROM schedules 
+				WHERE route_id = $1 AND sequence_number = $2
+				ORDER BY ABS(EXTRACT(EPOCH FROM (departure_time - $3::time))) 
+				LIMIT 1`
 
 			err := db.QueryRow(query, routeIDInt, busCtx.SequenceNumber, actualTime.Format("15:04:05")).Scan(&planDep, &planArr)
 			if err != nil && err != sql.ErrNoRows {
-				log.Println("Не удалось достать расписание автобуса:", err)
+				log.Println("[ERROR] Не удалось достать расписание:", err)
 			}
 
 			state.PlanDeparture = planDep
 			state.PlanArrival = planArr
 		}
 
-		// ====================================================================
-		// ВРЕМЕННЫЙ ФОРСИРОВАННЫЙ СТАРТ ДЛЯ ТЕСТОВ
-		// ====================================================================
 		if state.TripStatus == "" {
+			log.Println("[DEBUG] Статус пустой, инициализируем принудительный старт с маршрута...")
 			minDist := 99999999.0
 			closestFinalStopID := 0
 
-			// Ищем, какая конечная тупо ближе к нему географически прямо сейчас
 			for i := range busCtx.Stop {
 				if busCtx.Stop[i].Type == "final" {
 					dist := CalculateDistance(currentPoint[0], currentPoint[1], busCtx.Stop[i].Lat, busCtx.Stop[i].Lon)
@@ -161,29 +167,27 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 				}
 			}
 
-			// Если нашли ближайшую конечную, принудительно открываем рейс прямо с дороги
 			if closestFinalStopID != 0 {
 				state.CurrentStartStopID = closestFinalStopID
 				state.TripStatus = "in_trip"
 				state.ActualDeparture = actualTime
-				// Сразу подтягиваем под этот фейковый старт расписание, чтобы логика не путалась
+
 				routeIDInt, _ := strconv.Atoi(busCtx.RouteNumber)
 				var planDep, planArr string
 				query := `
-                    SELECT departure_time, arrival_time 
-                    FROM schedules 
-                    WHERE route_id = $1 AND sequence_number = $2
-                    ORDER BY ABS(EXTRACT(EPOCH FROM (departure_time - $3::time))) 
-                    LIMIT 1`
+					SELECT departure_time, arrival_time 
+					FROM schedules 
+					WHERE route_id = $1 AND sequence_number = $2
+					ORDER BY ABS(EXTRACT(EPOCH FROM (departure_time - $3::time))) 
+					LIMIT 1`
 
 				err := db.QueryRow(query, routeIDInt, busCtx.SequenceNumber, actualTime.Format("15:04:05")).Scan(&planDep, &planArr)
 				if err != nil && err != sql.ErrNoRows {
-					log.Println("Не удалось достать расписание при FORCE_START:", err)
+					log.Println("[ERROR] Не удалось достать расписание при FORCE_START:", err)
 				}
 				state.PlanDeparture = planDep
 				state.PlanArrival = planArr
 			}
 		}
-		// ====================================================================
 	}
 }
