@@ -25,6 +25,7 @@ type GPSServer struct {
 	DB           *sqlx.DB
 	Conns        *ws.Broadcaster
 	Mu           sync.Mutex
+	StopStates   map[string]*models.Dependence
 }
 
 func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.Status, error) {
@@ -35,6 +36,9 @@ func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.
 	}
 	if serv.NonExisenIPs == nil {
 		serv.NonExisenIPs = make(map[string]time.Time)
+	}
+	if serv.StopStates == nil {
+		serv.StopStates = make(map[string]*models.Dependence)
 	}
 	blockedUntil, isBlocked := serv.NonExisenIPs[req.DeviceIp]
 
@@ -104,26 +108,29 @@ func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.
 				reports.ViolationsReport(serv.DB, busCtx, "Выход с маршрута", deviation.Value)
 			}
 
-			// Чтобы не падать из-за отсутствия структур, используем логику "в моменте"
 			for _, v := range busCtx.Stop {
 				stopPos := []float64{v.Lat, v.Lon}
-				event := logic.CalculateStopStation(state, currentPoint, state.LastPoint, timeDiff, stopPos, v.Radius, actualTime, busCourse, v.Azimuth)
-				if event != nil {
-					state.IsBusStop = true
+				stateKey := fmt.Sprintf("%d_%d", busCtx.BusID, v.ID)
 
+				serv.Mu.Lock()
+				stopState, exists := serv.StopStates[stateKey]
+				if !exists {
+					stopState = &models.Dependence{}
+					serv.StopStates[stateKey] = stopState
+				}
+				serv.Mu.Unlock()
+
+				event := logic.CalculateStopStation(stopState, currentPoint, state.LastPoint, timeDiff, stopPos, v.Radius, actualTime, busCourse, v.Azimuth)
+				if event != nil {
 					logic.LogStopEvent(serv.DB, busCtx, v, event)
 
 					if event.IsSkipped {
 						reports.ViolationsReport(serv.DB, busCtx, "Пропуск остановки ", fmt.Sprintf("Остановка \"%v\" пропущена", v.Name))
 					}
 
-					// Твой старый блок генерации нарушения графика
-					delay := logic.CalculateDelay(event, v.Schedule)
-					if delay > 5 {
-						reports.ViolationsReport(serv.DB, busCtx, "Нарушение графика", fmt.Sprintf("+%d мин", delay))
-					}
-
-					state.IsBusStop = false // Сбрасываем обратно
+					serv.Mu.Lock()
+					delete(serv.StopStates, stateKey)
+					serv.Mu.Unlock()
 				}
 			}
 		}
