@@ -124,7 +124,7 @@ func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.
 				}
 				var event *models.StopEvent
 				if timeDiff > 0 {
-					event = logic.CalculateStopStation(state, currentPoint, state.LastPoint, timeDiff, stopPos, v.Radius, actualTime, busCourse, v.Azimuth, v.ID)
+					event = logic.CalculateStopStation(state, currentPoint, state.LastPoint, timeDiff, stopPos, v.Radius, actualTime, busCourse, v.Azimuth, v.ID, busCtx.BusID)
 				}
 
 				if event != nil {
