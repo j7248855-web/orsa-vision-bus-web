@@ -41,10 +41,6 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 		if busCtx.Stop[i].Type == "final" {
 			dist := CalculateDistance(currentPoint[0], currentPoint[1], busCtx.Stop[i].Lat, busCtx.Stop[i].Lon)
 
-			// Исправленный дебаг-лог (теперь без ошибок выводит радиус)
-			log.Printf("[DEBUG_DIST] Автобус (%f, %f) | Конечная %s (%f, %f) | Дистанция: %.2f метров | Радиус: %.0f",
-				currentPoint[0], currentPoint[1], busCtx.Stop[i].Name, busCtx.Stop[i].Lat, busCtx.Stop[i].Lon, dist, float64(busCtx.Stop[i].Radius))
-
 			if dist <= float64(busCtx.Stop[i].Radius) {
 				activeFinalStop = &busCtx.Stop[i]
 				break
@@ -170,10 +166,6 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 				state.CurrentStartStopID = closestFinalStopID
 				state.TripStatus = "in_trip"
 				state.ActualDeparture = actualTime
-
-				log.Printf("[FORCE_START] Автобус %s пойман на дороге! Привязан к ближайшей конечной ID %d. Статус переведен в IN_TRIP.",
-					busCtx.BusNumber, closestFinalStopID)
-
 				// Сразу подтягиваем под этот фейковый старт расписание, чтобы логика не путалась
 				routeIDInt, _ := strconv.Atoi(busCtx.RouteNumber)
 				var planDep, planArr string

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"math"
 	"orsavisionweb/internal/core/logic"
 	"orsavisionweb/internal/core/reports"
 	"orsavisionweb/internal/core/ws"
@@ -83,8 +82,6 @@ func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.
 
 		logic.ProcessTripState(serv.DB, busCtx, currentPoint, actualTime)
 
-		log.Printf("Автобус ID: %d, Статус рейса: '%s', Текущая конечная ID: %d", busCtx.BusID, state.TripStatus, state.CurrentStartStopID)
-
 		go serv.Conns.SendLocation(gin.H{
 			"bus_id": busCtx.BusID,
 			"lat":    lat,
@@ -104,24 +101,12 @@ func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.
 
 		if busCtx.State.TripStatus == "in_trip" {
 			if deviation.IsOffRoute {
-				log.Printf("Фиксация выхода с маршрута для автобуса %d, Значение: %v", busCtx.BusID, deviation.Value)
 				reports.ViolationsReport(serv.DB, busCtx, "Выход с маршрута", deviation.Value)
 			}
 
 			// Чтобы не падать из-за отсутствия структур, используем логику "в моменте"
 			for _, v := range busCtx.Stop {
 				stopPos := []float64{v.Lat, v.Lon}
-				dLat := currentPoint[0] - v.Lat
-				dLon := currentPoint[1] - v.Lon
-				radian := currentPoint[0] * math.Pi / 180
-				dFb := dLat * 111111.0
-				dAb := (dLon * 111111.0) * math.Cos(radian)
-				dist := math.Sqrt(math.Pow(dFb, 2) + math.Pow(dAb, 2))
-
-				// Выводим только те остановки, до которых меньше 2 километров, чтобы не спамить консоль
-				if dist < 2000 {
-					log.Printf("Остановка: %s | Дистанция: %.2f метров | Радиус: %.0f", v.Name, dist, v.Radius)
-				}
 				event := logic.CalculateStopStation(state, currentPoint, state.LastPoint, timeDiff, stopPos, v.Radius, actualTime, busCourse, v.Azimuth)
 				fmt.Println()
 				if event != nil {
@@ -130,7 +115,6 @@ func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.
 					logic.LogStopEvent(serv.DB, busCtx, v, event)
 
 					if event.IsSkipped {
-						log.Printf("[REPORTS] Фиксация пропуска остановки: %s", v.Name)
 						reports.ViolationsReport(serv.DB, busCtx, "Пропуск остановки ", fmt.Sprintf("Остановка \"%v\" пропущена", v.Name))
 					}
 

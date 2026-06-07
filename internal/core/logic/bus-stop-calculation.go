@@ -57,15 +57,10 @@ func CalculateStopStation(d *models.Dependence, busPos []float64, lastBusPos []f
 
 	if inRadius {
 		d.WasInRadius = true
-
-		// Фиксируем время ПЕРВОГО появления на низкой скорости
 		if speed <= 7 && d.FirtsSeenOnStation.IsZero() {
 			d.FirtsSeenOnStation = actualTime
 		}
-
-		// Если уже была зафиксирована остановка, проверяем длительность по GPS времени
 		if !d.FirtsSeenOnStation.IsZero() && speed <= 10 {
-			// Сравниваем через actualTime (GPS время пакета!), а не через time.Since
 			if actualTime.Sub(d.FirtsSeenOnStation) >= 10*time.Second {
 				d.IsBusStop = true
 			}
@@ -75,7 +70,6 @@ func CalculateStopStation(d *models.Dependence, busPos []float64, lastBusPos []f
 	if !inRadius {
 		if d.WasInRadius {
 			if d.IsBusStop {
-				// Просчитываем сколько он стоял на остановке
 				duration := actualTime.Sub(d.FirtsSeenOnStation)
 				event := &models.StopEvent{
 					ActualTime:   actualTime,
