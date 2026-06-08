@@ -4,10 +4,29 @@ import (
 	"fmt"
 	"log"
 	"orsavisionweb/internal/models"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
 )
+
+func NormalizeRouteNumber(route string) string {
+	route = strings.ToUpper(strings.TrimSpace(route))
+	replacer := strings.NewReplacer(
+		"А", "A",
+		"В", "B",
+		"С", "C",
+		"Е", "E",
+		"К", "K",
+		"М", "M",
+		"Н", "H",
+		"О", "O",
+		"Р", "P",
+		"Т", "T",
+		"Х", "X",
+	)
+	return replacer.Replace(route)
+}
 
 // Логика добавления нового автобуса и его девайсов
 func RegisterBus(ctx *gin.Context, conn *sqlx.DB) {
@@ -219,7 +238,8 @@ func RemoveBus(ctx *gin.Context, conn *sqlx.DB) {
 
 // Данные о графике
 func DataBus(ctx *gin.Context, conn *sqlx.DB) {
-	routeNumber := ctx.Param("route_number")
+	routeNumberRaw := ctx.Param("route_number")
+	routeNumber := NormalizeRouteNumber(routeNumberRaw)
 
 	var routeID int
 	err := conn.GetContext(ctx, &routeID, "SELECT id FROM routes WHERE route_number = $1 LIMIT 1", routeNumber)
