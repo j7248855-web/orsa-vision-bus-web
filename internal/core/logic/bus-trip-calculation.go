@@ -1,7 +1,6 @@
 package logic
 
 import (
-	"database/sql"
 	"fmt"
 	"log"
 	"math"
@@ -25,7 +24,6 @@ func GetLocationByCity(city string) *time.Location {
 
 	loc, err := time.LoadLocation(zoneName)
 	if err != nil {
-		// Если в системе нет базы таймзон, хардкодим +5 часов, актуальные для КЗ
 		return time.FixedZone("KZTS", 5*60*60)
 	}
 	return loc
@@ -55,9 +53,18 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 		return
 	}
 
-	// ЖЕСТКАЯ КОРРЕКЦИЯ ВРЕМЕНИ ПОД ГОРОД КАЗАХСТАНА
+	// КОРРЕКЦИЯ ВРЕМЕНИ ПОД ГОРОД КАЗАХСТАНА
 	loc := GetLocationByCity(busCtx.City)
 	actualTime = actualTime.In(loc)
+
+	// Находим первую попавшуюся конечную в списке как базовую (Точка А)
+	var baseFinalStopID int
+	for _, s := range busCtx.Stop {
+		if s.Type == "final" {
+			baseFinalStopID = s.ID
+			break
+		}
+	}
 
 	var activeFinalStop *models.Stop = nil
 	for i := range busCtx.Stop {
@@ -166,34 +173,57 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 			log.Printf("[DEBUG] ТРИГГЕР СТАРТА: Автобус %s (График %d) выехал с конечной ID %d в %s",
 				busCtx.BusNumber, busCtx.SequenceNumber, state.CurrentStartStopID, actualTime.Format("15:04:05"))
 
-			var planDepStr, planArrStr string
+			// Определяем направление: true — Туда (из А), false — Обратно (из Б)
+			isForwardWay := state.CurrentStartStopID == baseFinalStopID
 
+			// Вытягиваем ВСЕ рейсы этого графика, отсортированные по времени старта
 			query := `
 				SELECT s.departure_time::text, s.arrival_time::text 
 				FROM schedules s
 				JOIN routes r ON s.route_id = r.id
 				WHERE r.route_number = $1 AND s.sequence_number = $2
-				ORDER BY ABS(EXTRACT(EPOCH FROM (s.departure_time::time - $3::time))) 
-				LIMIT 1`
+				ORDER BY s.departure_time::time ASC`
 
-			err := db.QueryRow(query, busCtx.RouteNumber, busCtx.SequenceNumber, actualTime.Format("15:04:05")).Scan(&planDepStr, &planArrStr)
+			rows, err := db.Query(query, busCtx.RouteNumber, busCtx.SequenceNumber)
 			if err != nil {
-				if err != sql.ErrNoRows {
-					log.Println("[ERROR] Не удалось достать расписание при старте:", err)
-				}
+				log.Println("[ERROR] Ошибка получения расписания:", err)
 				state.PlanDeparture = ""
 				state.PlanArrival = ""
 			} else {
-				if len(planDepStr) > 8 {
-					planDepStr = planDepStr[:8]
-				}
-				if len(planArrStr) > 8 {
-					planArrStr = planArrStr[:8]
+				defer rows.Close()
+
+				var bestDep, bestArr string
+				minDiff := 999999.0
+				itemIndex := 0 // Счетчик, чтобы понимать четность рейса в сутках
+
+				for rows.Next() {
+					var depStr, arrStr string
+					if err := rows.Scan(&depStr, &arrStr); err == nil {
+						itemIndex++
+						// Четность рейса должна соответствовать направлению:
+						// Если едем Туда (isForwardWay == true), индекс должен быть НЕЧЕТНЫМ (1, 3, 5...)
+						// Если едем Обратно (isForwardWay == false), индекс должен быть ЧЕТНЫМ (2, 4, 6...)
+						isTripForward := itemIndex%2 != 0
+
+						if isForwardWay == isTripForward {
+							// Считаем разницу во времени, чтобы найти самый близкий подходящий рейс
+							parsedDep, _ := time.Parse("15:04:05", depStr[:8])
+							curTimeStr := actualTime.Format("15:04:05")
+							parsedCur, _ := time.Parse("15:04:05", curTimeStr)
+
+							diff := math.Abs(parsedDep.Sub(parsedCur).Minutes())
+							if diff < minDiff {
+								minDiff = diff
+								bestDep = depStr[:8]
+								bestArr = arrStr[:8]
+							}
+						}
+					}
 				}
 
-				state.PlanDeparture = planDepStr
-				state.PlanArrival = planArrStr
-				log.Printf("[DEBUG] Найдено расписание: План старт=%s, План финиш=%s", state.PlanDeparture, state.PlanArrival)
+				state.PlanDeparture = bestDep
+				state.PlanArrival = bestArr
+				log.Printf("[DEBUG] Зигзаг-поиск. Направление Туда=%v. Выбран план: %s -> %s", isForwardWay, state.PlanDeparture, state.PlanArrival)
 			}
 		}
 
@@ -220,34 +250,45 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 				state.TripStatus = "in_trip"
 				state.ActualDeparture = actualTime
 
-				var planDepStr, planArrStr string
+				isForwardWay := state.CurrentStartStopID == baseFinalStopID
 
 				query := `
 					SELECT s.departure_time::text, s.arrival_time::text 
 					FROM schedules s
 					JOIN routes r ON s.route_id = r.id
 					WHERE r.route_number = $1 AND s.sequence_number = $2
-					ORDER BY ABS(EXTRACT(EPOCH FROM (s.arrival_time::time - $3::time))) 
-					LIMIT 1`
+					ORDER BY s.departure_time::time ASC`
 
-				err := db.QueryRow(query, busCtx.RouteNumber, busCtx.SequenceNumber, actualTime.Format("15:04:05")).Scan(&planDepStr, &planArrStr)
-				if err != nil {
-					if err != sql.ErrNoRows {
-						log.Println("[ERROR] Не удалось достать расписание ретроспективно:", err)
-					}
-					state.PlanDeparture = ""
-					state.PlanArrival = ""
-				} else {
-					if len(planDepStr) > 8 {
-						planDepStr = planDepStr[:8]
-					}
-					if len(planArrStr) > 8 {
-						planArrStr = planArrStr[:8]
-					}
+				rows, err := db.Query(query, busCtx.RouteNumber, busCtx.SequenceNumber)
+				if err == nil {
+					defer rows.Close()
+					var bestDep, bestArr string
+					minDiff := 999999.0
+					itemIndex := 0
 
-					state.PlanDeparture = planDepStr
-					state.PlanArrival = planArrStr
-					log.Printf("[DEBUG] Ретроспективно закреплен план: %s -> %s", state.PlanDeparture, state.PlanArrival)
+					for rows.Next() {
+						var depStr, arrStr string
+						if err := rows.Scan(&depStr, &arrStr); err == nil {
+							itemIndex++
+							isTripForward := itemIndex%2 != 0
+
+							if isForwardWay == isTripForward {
+								parsedArr, _ := time.Parse("15:04:05", arrStr[:8])
+								curTimeStr := actualTime.Format("15:04:05")
+								parsedCur, _ := time.Parse("15:04:05", curTimeStr)
+
+								diff := math.Abs(parsedArr.Sub(parsedCur).Minutes())
+								if diff < minDiff {
+									minDiff = diff
+									bestDep = depStr[:8]
+									bestArr = arrStr[:8]
+								}
+							}
+						}
+					}
+					state.PlanDeparture = bestDep
+					state.PlanArrival = bestArr
+					log.Printf("[DEBUG] Ретроспективно закреплен зигзаг-план: %s -> %s", state.PlanDeparture, state.PlanArrival)
 				}
 			}
 		}
