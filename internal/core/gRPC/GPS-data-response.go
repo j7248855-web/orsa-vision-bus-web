@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	gps_pt "github.com/j7248855-web/orsa-vision-grpc-second/gen/sso"
 	"github.com/jmoiron/sqlx"
 )
@@ -84,28 +83,58 @@ func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.
 			now.Year(), now.Month(), now.Day(),
 			gpsTime.Hour(), gpsTime.Minute(), gpsTime.Second(), 0, time.UTC)
 
-		// 1. Отработка статусов рейса (Зигзаги, финиши, старты)
 		logic.ProcessTripState(serv.DB, busCtx, currentPoint, actualTime)
 
-		// Стрим в вебсокеты наружу
-		go serv.Conns.SendLocation(gin.H{
-			"bus_id": busCtx.BusID,
-			"lat":    lat,
-			"lon":    lon,
-			"course": busCourse,
-		})
+		state.LastPoint = currentPoint
+		state.LastTime = actualTime
+
+		query := `
+            SELECT b.bus_number, d.device_ip
+            FROM routes r
+            JOIN buses b ON b.route_number = r.route_number
+            JOIN devices d ON d.bus_id = b.id
+            WHERE b.route_number = $1 AND d.type = 'teltonic' AND d.status = 'active' AND b.status = 'active'`
+
+		var dbRows []struct {
+			BusNumber string `db:"bus_number"`
+			DeviceIP  string `db:"device_ip"`
+		}
+
+		if err := serv.DB.Select(&dbRows, query, busCtx.RouteNumber); err != nil {
+			log.Println("Ошибка получения автобусов маршрута:", err)
+		} else {
+
+			busesMap := make([]models.BusOnMap, 0, len(dbRows))
+
+			serv.Mu.Lock()
+			for _, row := range dbRows {
+				ctxInStorage, ok := serv.Storage[row.DeviceIP]
+				var busLat, busLng float64
+
+				if ok && ctxInStorage.State != nil && ctxInStorage.State.LastPoint != nil {
+					busLat = ctxInStorage.State.LastPoint[0]
+					busLng = ctxInStorage.State.LastPoint[1]
+				}
+
+				busesMap = append(busesMap, models.BusOnMap{
+					BusNumber: row.BusNumber,
+					Lat:       busLat,
+					Lng:       busLng,
+				})
+			}
+			serv.Mu.Unlock()
+
+			go serv.Conns.SendLocation(busesMap)
+		}
+
 		if busCtx.State.TripStatus == "in_trip" {
 			logic.ProcessRouteDeviation(serv.DB, busCtx, currentPoint, actualTime)
 		}
 
 		var timeDiff time.Duration
-		if state.LastTime.IsZero() {
-			state.LastTime = actualTime
-		}
 		timeDiff = actualTime.Sub(state.LastTime)
 
 		if busCtx.State.TripStatus == "in_trip" {
-
 			for _, v := range busCtx.Stop {
 				stopPos := []float64{v.Lat, v.Lon}
 				stateKey := fmt.Sprintf("%d_%d", busCtx.BusID, v.ID)
@@ -132,8 +161,6 @@ func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.
 				}
 			}
 		}
-		state.LastPoint = currentPoint
-		state.LastTime = actualTime
 	case *gps_pt.GPSData_Gga:
 		log.Println("Пришли GGA:", data.Gga)
 	case nil:

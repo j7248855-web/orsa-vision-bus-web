@@ -26,10 +26,12 @@ func WSRoute(r *gin.Engine, b *ws.Broadcaster, db *sqlx.DB) {
 			return
 		}
 
+		// Регистрируем клиента
 		b.Mu.Lock()
-		b.Clients[conn] = true // Если твой бродкастер поддерживает map[*websocket.Conn]string, можно записать = routeID
+		b.Clients[conn] = true
 		b.Mu.Unlock()
 
+		// Чистим за собой при выходе из функции
 		defer func() {
 			b.Mu.Lock()
 			delete(b.Clients, conn)
@@ -38,6 +40,7 @@ func WSRoute(r *gin.Engine, b *ws.Broadcaster, db *sqlx.DB) {
 			log.Println("Клиент отключился от WS")
 		}()
 
+		// Достаем автобусы и их телтоники по цепочке
 		query := `
 			SELECT b.bus_number
 			FROM routes r
@@ -52,26 +55,23 @@ func WSRoute(r *gin.Engine, b *ws.Broadcaster, db *sqlx.DB) {
 		if err := db.SelectContext(ctx, &dbRows, query, routeID); err != nil {
 			log.Println("Ошибка при выборке автобусов для WS:", err)
 		} else {
+			// Перекладываем в нужный фронту массив структур
 			buses := make([]models.BusOnMap, 0, len(dbRows))
 			for _, row := range dbRows {
 				buses = append(buses, models.BusOnMap{
 					BusNumber: row.BusNumber,
-					Lat:       0.0,
+					Lat:       0.0, // Дефолтные координаты, далее они обновятся через SendLocation
 					Lng:       0.0,
 				})
 			}
 
-			// Упаковываем в объект с типом, чтобы фронт понимал, что это стартовый массив
-			payload := gin.H{
-				"type":  "initial",
-				"buses": buses,
-			}
-
-			if err := conn.WriteJSON(payload); err != nil {
+			// Отправляем сформированный массив первично в сокет
+			if err := conn.WriteJSON(buses); err != nil {
 				log.Println("Ошибка отправки данных в сокет:", err)
 			}
 		}
 
+		// Держим соединение пока сокет живой
 		for {
 			if _, _, err := conn.ReadMessage(); err != nil {
 				break
