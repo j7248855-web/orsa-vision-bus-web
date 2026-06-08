@@ -84,19 +84,20 @@ func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.
 			now.Year(), now.Month(), now.Day(),
 			gpsTime.Hour(), gpsTime.Minute(), gpsTime.Second(), 0, time.UTC)
 
+		// 1. Отработка статусов рейса (Зигзаги, финиши, старты)
 		logic.ProcessTripState(serv.DB, busCtx, currentPoint, actualTime)
 
+		// Стрим в вебсокеты наружу
 		go serv.Conns.SendLocation(gin.H{
 			"bus_id": busCtx.BusID,
 			"lat":    lat,
 			"lon":    lon,
 			"course": busCourse,
 		})
-
-		var deviation models.DeviationResult
 		if busCtx.State.TripStatus == "in_trip" {
-			deviation = logic.CheckDeviation(lat, lon, busCtx.Points)
+			logic.ProcessRouteDeviation(serv.DB, busCtx, currentPoint, actualTime)
 		}
+
 		var timeDiff time.Duration
 		if state.LastTime.IsZero() {
 			state.LastTime = actualTime
@@ -104,9 +105,6 @@ func (serv *GPSServer) Stream(cx context.Context, req *gps_pt.GPSData) (*gps_pt.
 		timeDiff = actualTime.Sub(state.LastTime)
 
 		if busCtx.State.TripStatus == "in_trip" {
-			if deviation.IsOffRoute {
-				reports.ViolationsReport(serv.DB, busCtx, "Выход с маршрута", deviation.Value)
-			}
 
 			for _, v := range busCtx.Stop {
 				stopPos := []float64{v.Lat, v.Lon}

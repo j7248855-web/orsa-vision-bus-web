@@ -17,6 +17,9 @@ type Dependence struct {
 	PlanArrival        string    `json:"plan_arrival"`          // Плановое время приезда
 	ActualDeparture    time.Time `json:"actual_departure"`      // Реальное время выезда с конечной
 	TripSequence       int       `db:"-"`
+	IsOffRoute         bool      `db:"-"`
+	MaxDeviation       float64   `db:"-"`
+	OffRouteStartTime  time.Time `db:"-"`
 }
 
 // Информация про сам автобус
