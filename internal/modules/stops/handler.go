@@ -94,6 +94,7 @@ func FullBusStation(ctx *gin.Context, conn *sqlx.DB) {
 	ctx.JSON(200, dbStops)
 }
 
+// Функция удаления остановок
 func RemoveStops(ctx *gin.Context, conn *sqlx.DB) {
 	stop_id := ctx.Param("stop_id")
 	var stops models.Stop

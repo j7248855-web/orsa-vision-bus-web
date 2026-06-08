@@ -66,29 +66,43 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 					break
 				}
 			}
-			duration := actualTime.Sub(state.ActualDeparture)
-			durationFactStr := fmt.Sprintf("%d мин", int(duration.Minutes()))
 
+			// БЕЗОПАСНЫЙ РАСЧЕТ ВРЕМЕНИ В ПУТИ (только часы и минуты суток)
+			h1, m1, s1 := actualTime.Clock()
+			h2, m2, s2 := state.ActualDeparture.Clock()
+
+			secondsFact := h1*3600 + m1*60 + s1
+			secondsDep := h2*3600 + m2*60 + s2
+
+			if secondsFact < secondsDep { // Если переехали через полночь
+				secondsFact += 24 * 3600
+			}
+			diffMinutes := (secondsFact - secondsDep) / 60
+			durationFactStr := fmt.Sprintf("%d мин", diffMinutes)
+
+			// БЕЗОПАСНЫЙ РАСЧЕТ ЗАДЕРЖКИ
 			delayMinutes := 0
 			if state.PlanArrival != "" {
 				parsedPlanStr, err := time.Parse("15:04:05", state.PlanArrival)
 				if err == nil {
 					localActual := actualTime.Local()
 
-					planTime := time.Date(
-						localActual.Year(), localActual.Month(), localActual.Day(),
-						parsedPlanStr.Hour(), parsedPlanStr.Minute(), parsedPlanStr.Second(), 0,
-						localActual.Location(),
-					)
-					if localActual.After(planTime) {
-						delayMinutes = int(localActual.Sub(planTime).Minutes())
+					// Считаем минуты с начала суток для факта и плана
+					factMinutesSinceMidnight := localActual.Hour()*60 + localActual.Minute()
+					planMinutesSinceMidnight := parsedPlanStr.Hour()*60 + parsedPlanStr.Minute()
+
+					// Если факт позже плана — фиксируем задержку
+					if factMinutesSinceMidnight > planMinutesSinceMidnight {
+						delayMinutes = factMinutesSinceMidnight - planMinutesSinceMidnight
 					}
 				}
 			}
+
 			var safePlannedTime interface{} = nil
 			if state.PlanArrival != "" {
 				safePlannedTime = state.PlanArrival
 			}
+
 			query := `
 				INSERT INTO trip_reports (
 					city, report_date, route_number, bus_gov_number, trip_sequence,
@@ -109,7 +123,7 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 				actualTime.Format("15:04:05"),
 				durationFactStr,
 				delayMinutes,
-				"Завершено",
+				"completed",
 				actualTime,
 			)
 			if err != nil {
@@ -139,13 +153,14 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 				busCtx.BusNumber, state.CurrentStartStopID, actualTime.Format("15:04:05"))
 			var planDep, planArr time.Time
 
+			// Оптимизированный запрос: ищет ближайшее по времени расписание, а не просто первое попавшееся
 			query := `
-    SELECT s.departure_time, s.arrival_time 
-    FROM schedules s
-    JOIN routes r ON s.route_id = r.id
-    WHERE r.route_number = $1 AND s.sequence_number = $2
-    ORDER BY ABS(EXTRACT(EPOCH FROM (s.departure_time - $3::time))) 
-    LIMIT 1`
+				SELECT s.departure_time, s.arrival_time 
+				FROM schedules s
+				JOIN routes r ON s.route_id = r.id
+				WHERE r.route_number = $1 AND s.sequence_number = $2
+				ORDER BY ABS(EXTRACT(EPOCH FROM (s.departure_time::time - $3::time))) 
+				LIMIT 1`
 
 			err := db.QueryRow(query, busCtx.RouteNumber, busCtx.SequenceNumber, actualTime.Format("15:04:05")).Scan(&planDep, &planArr)
 			if err != nil {
@@ -186,7 +201,7 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 					FROM schedules s
 					JOIN routes r ON s.route_id = r.id
 					WHERE r.route_number = $1 AND s.sequence_number = $2
-					ORDER BY ABS(EXTRACT(EPOCH FROM (s.departure_time - $3::time))) 
+					ORDER BY ABS(EXTRACT(EPOCH FROM (s.departure_time::time - $3::time))) 
 					LIMIT 1`
 
 				err := db.QueryRow(query, busCtx.RouteNumber, busCtx.SequenceNumber, actualTime.Format("15:04:05")).Scan(&planDep, &planArr)
