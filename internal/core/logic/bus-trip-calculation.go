@@ -11,6 +11,26 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
+// Получает локацию времени на основе города Казахстана
+func GetLocationByCity(city string) *time.Location {
+	var zoneName string
+	switch city {
+	case "Актобе", "Атырау", "Актау", "Уральск", "Кызылорда":
+		zoneName = "Asia/Aqtobe"
+	case "Астана", "Алматы", "Шымкент", "Караганда", "Павлодар", "Усть-Каменогорск", "Тараз", "Костанай", "Петропавловск", "Семей":
+		zoneName = "Asia/Almaty"
+	default:
+		zoneName = "Asia/Almaty"
+	}
+
+	loc, err := time.LoadLocation(zoneName)
+	if err != nil {
+		// Если в системе нет базы таймзон, хардкодим +5 часов, актуальные для КЗ
+		return time.FixedZone("KZTS", 5*60*60)
+	}
+	return loc
+}
+
 // Cчитает расстояние между автобусом и конечной в метрах
 func CalculateDistance(busLat, busLon, finalStopLat, finalStopLon float64) float64 {
 	const R = 6371000
@@ -34,6 +54,10 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 		log.Println("[DEBUG] State у автобуса nil")
 		return
 	}
+
+	// ЖЕСТКАЯ КОРРЕКЦИЯ ВРЕМЕНИ ПОД ГОРОД КАЗАХСТАНА
+	loc := GetLocationByCity(busCtx.City)
+	actualTime = actualTime.In(loc)
 
 	var activeFinalStop *models.Stop = nil
 	for i := range busCtx.Stop {
@@ -144,7 +168,6 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 
 			var planDepStr, planArrStr string
 
-			// Логика обычного старта: ищем рейс по его графику, ближайший по времени ОТПРАВЛЕНИЯ
 			query := `
 				SELECT s.departure_time::text, s.arrival_time::text 
 				FROM schedules s
@@ -176,7 +199,9 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 
 		// РЕТРОСПЕКТИВНАЯ ИНИЦИАЛИЗАЦИЯ (Старт из "никуда")
 		if state.TripStatus == "" {
-			log.Printf("[DEBUG] Инициализация автобуса %s (График %d) на маршруте...", busCtx.BusNumber, busCtx.SequenceNumber)
+			log.Printf("[DEBUG] Инициализация автобуса %s (График %d) на маршруте города %s в %s...",
+				busCtx.BusNumber, busCtx.SequenceNumber, busCtx.City, actualTime.Format("15:04:05"))
+
 			minDist := 99999999.0
 			closestFinalStopID := 0
 
@@ -197,8 +222,6 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 
 				var planDepStr, planArrStr string
 
-				// УМНЫЙ ЗАПРОС: Ищем рейс строго по графику автобуса,
-				// ориентируясь на то, к какому ПРИБЫТИЮ (arrival_time) ближе всего текущее время на часах
 				query := `
 					SELECT s.departure_time::text, s.arrival_time::text 
 					FROM schedules s
