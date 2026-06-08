@@ -53,7 +53,7 @@ func main() {
 
 	//Подключение роутеров
 	routers.Routing(serv, dbConn)
-	routers.WSRoute(serv, b)
+	routers.WSRoute(serv, b, dbConn)
 	routers.WHRoute(serv, dbConn)
 
 	//Установки максимально разрешённого объёма CSV

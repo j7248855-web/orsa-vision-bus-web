@@ -28,3 +28,9 @@ type ScheduleBus struct {
 	ArrivalTime    time.Time `json:"arrival_time" db:"arrival_time"`
 	DepartuteTime  time.Time `json:"departure_time" db:"departure_time"`
 }
+
+type BusOnMap struct {
+	BusNumber string  `json:"busNumber"`
+	Lat       float64 `json:"lat"`
+	Lng       float64 `json:"lng"`
+}
