@@ -35,7 +35,7 @@ func CalculateDistance(busLat, busLon, finalStopLat, finalStopLon float64) float
 	const rad = math.Pi / 180
 	lat1 := busLat * rad
 	lon1 := busLon * rad
-	lat2 := finalStopLat * rad
+	lat2 := busLat * rad
 	lon2 := finalStopLon * rad
 	dLat := lat2 - lat1
 	dLon := lon2 - lon1
@@ -44,6 +44,74 @@ func CalculateDistance(busLat, busLon, finalStopLat, finalStopLon float64) float
 			math.Cos(lat1)*math.Cos(lat2)*math.Pow(math.Sin(dLon/2), 2),
 	))
 	return calculate
+}
+
+// Вспомогательная функция для генерации зигзаг-расписания на лету
+func SliceScheduleZigZag(db *sqlx.DB, routeNumber string, sequenceNumber int, actualTime time.Time) (string, string) {
+	timeStr := actualTime.Format("15:04:05")
+
+	// Тянем вообще все рейсы графика, упорядоченные по времени суток
+	query := `
+		SELECT s.departure_time::text, s.arrival_time::text 
+		FROM schedules s
+		JOIN routes r ON s.route_id = r.id
+		WHERE r.route_number = $1 AND s.sequence_number = $2
+		ORDER BY s.departure_time::time ASC`
+
+	rows, err := db.Query(query, routeNumber, sequenceNumber)
+	if err != nil {
+		log.Println("[ERROR] Ошибка Query в SliceScheduleZigZag:", err)
+		return "", ""
+	}
+	defer rows.Close()
+
+	type scheduleRow struct {
+		dep string
+		arr string
+	}
+
+	var list []scheduleRow
+	for rows.Next() {
+		var r scheduleRow
+		if err := rows.Scan(&r.dep, &r.arr); err == nil {
+			if len(r.dep) > 8 {
+				r.dep = r.dep[:8]
+			}
+			if len(r.arr) > 8 {
+				r.arr = r.arr[:8]
+			}
+			list = append(list, r)
+		}
+	}
+
+	if len(list) == 0 {
+		return "", ""
+	}
+
+	// Ищем, в какой промежуток времени попадает наш автобус
+	for i, currentTrip := range list {
+		// Если это последний рейс в сутках, генерировать "следующий" не из чего
+		if i == len(list)-1 {
+			return currentTrip.dep, currentTrip.arr
+		}
+
+		nextTrip := list[i+1]
+
+		// Если текущее время находится МЕЖДУ финишем текущего рейса и стартом следующего
+		// Например: на часах 13:38, текущий рейс финишировал в 13:10, а следующий стартует в 14:30
+		if timeStr >= currentTrip.arr && timeStr <= nextTrip.dep {
+			log.Printf("[DEBUG] ЗИГЗАГ ДЕТЕКТЕД: Время %s между рейсами %s и %s. Конструируем виртуальный рейс.", timeStr, currentTrip.arr, nextTrip.dep)
+			return currentTrip.arr, nextTrip.dep // Сами создаем departure_time и arrival_time!
+		}
+
+		// Если мы попали четко внутрь стандартного рейса (автобус едет по расписанию)
+		if timeStr >= currentTrip.dep && timeStr < currentTrip.arr {
+			return currentTrip.dep, currentTrip.arr
+		}
+	}
+
+	// Дефолтный фолбек на самый математически близкий рейс, если никуда не попали
+	return list[0].dep, list[0].arr
 }
 
 func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []float64, actualTime time.Time) {
@@ -56,15 +124,6 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 	// КОРРЕКЦИЯ ВРЕМЕНИ ПОД ГОРОД КАЗАХСТАНА
 	loc := GetLocationByCity(busCtx.City)
 	actualTime = actualTime.In(loc)
-
-	// Находим первую попавшуюся конечную в списке как базовую (Точка А)
-	var baseFinalStopID int
-	for _, s := range busCtx.Stop {
-		if s.Type == "final" {
-			baseFinalStopID = s.ID
-			break
-		}
-	}
 
 	var activeFinalStop *models.Stop = nil
 	for i := range busCtx.Stop {
@@ -173,58 +232,11 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 			log.Printf("[DEBUG] ТРИГГЕР СТАРТА: Автобус %s (График %d) выехал с конечной ID %d в %s",
 				busCtx.BusNumber, busCtx.SequenceNumber, state.CurrentStartStopID, actualTime.Format("15:04:05"))
 
-			// Определяем направление: true — Туда (из А), false — Обратно (из Б)
-			isForwardWay := state.CurrentStartStopID == baseFinalStopID
-
-			// Вытягиваем ВСЕ рейсы этого графика, отсортированные по времени старта
-			query := `
-				SELECT s.departure_time::text, s.arrival_time::text 
-				FROM schedules s
-				JOIN routes r ON s.route_id = r.id
-				WHERE r.route_number = $1 AND s.sequence_number = $2
-				ORDER BY s.departure_time::time ASC`
-
-			rows, err := db.Query(query, busCtx.RouteNumber, busCtx.SequenceNumber)
-			if err != nil {
-				log.Println("[ERROR] Ошибка получения расписания:", err)
-				state.PlanDeparture = ""
-				state.PlanArrival = ""
-			} else {
-				defer rows.Close()
-
-				var bestDep, bestArr string
-				minDiff := 999999.0
-				itemIndex := 0 // Счетчик, чтобы понимать четность рейса в сутках
-
-				for rows.Next() {
-					var depStr, arrStr string
-					if err := rows.Scan(&depStr, &arrStr); err == nil {
-						itemIndex++
-						// Четность рейса должна соответствовать направлению:
-						// Если едем Туда (isForwardWay == true), индекс должен быть НЕЧЕТНЫМ (1, 3, 5...)
-						// Если едем Обратно (isForwardWay == false), индекс должен быть ЧЕТНЫМ (2, 4, 6...)
-						isTripForward := itemIndex%2 != 0
-
-						if isForwardWay == isTripForward {
-							// Считаем разницу во времени, чтобы найти самый близкий подходящий рейс
-							parsedDep, _ := time.Parse("15:04:05", depStr[:8])
-							curTimeStr := actualTime.Format("15:04:05")
-							parsedCur, _ := time.Parse("15:04:05", curTimeStr)
-
-							diff := math.Abs(parsedDep.Sub(parsedCur).Minutes())
-							if diff < minDiff {
-								minDiff = diff
-								bestDep = depStr[:8]
-								bestArr = arrStr[:8]
-							}
-						}
-					}
-				}
-
-				state.PlanDeparture = bestDep
-				state.PlanArrival = bestArr
-				log.Printf("[DEBUG] Зигзаг-поиск. Направление Туда=%v. Выбран план: %s -> %s", isForwardWay, state.PlanDeparture, state.PlanArrival)
-			}
+			// Применяем нашу новую зигзаг-логику конструирования рейсов
+			dep, arr := SliceScheduleZigZag(db, busCtx.RouteNumber, busCtx.SequenceNumber, actualTime)
+			state.PlanDeparture = dep
+			state.PlanArrival = arr
+			log.Printf("[DEBUG] Найдено расписание: План старт=%s, План финиш=%s", state.PlanDeparture, state.PlanArrival)
 		}
 
 		// РЕТРОСПЕКТИВНАЯ ИНИЦИАЛИЗАЦИЯ (Старт из "никуда")
@@ -250,46 +262,11 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 				state.TripStatus = "in_trip"
 				state.ActualDeparture = actualTime
 
-				isForwardWay := state.CurrentStartStopID == baseFinalStopID
-
-				query := `
-					SELECT s.departure_time::text, s.arrival_time::text 
-					FROM schedules s
-					JOIN routes r ON s.route_id = r.id
-					WHERE r.route_number = $1 AND s.sequence_number = $2
-					ORDER BY s.departure_time::time ASC`
-
-				rows, err := db.Query(query, busCtx.RouteNumber, busCtx.SequenceNumber)
-				if err == nil {
-					defer rows.Close()
-					var bestDep, bestArr string
-					minDiff := 999999.0
-					itemIndex := 0
-
-					for rows.Next() {
-						var depStr, arrStr string
-						if err := rows.Scan(&depStr, &arrStr); err == nil {
-							itemIndex++
-							isTripForward := itemIndex%2 != 0
-
-							if isForwardWay == isTripForward {
-								parsedArr, _ := time.Parse("15:04:05", arrStr[:8])
-								curTimeStr := actualTime.Format("15:04:05")
-								parsedCur, _ := time.Parse("15:04:05", curTimeStr)
-
-								diff := math.Abs(parsedArr.Sub(parsedCur).Minutes())
-								if diff < minDiff {
-									minDiff = diff
-									bestDep = depStr[:8]
-									bestArr = arrStr[:8]
-								}
-							}
-						}
-					}
-					state.PlanDeparture = bestDep
-					state.PlanArrival = bestArr
-					log.Printf("[DEBUG] Ретроспективно закреплен зигзаг-план: %s -> %s", state.PlanDeparture, state.PlanArrival)
-				}
+				// Здесь применяем ту же самую логику конструирования
+				dep, arr := SliceScheduleZigZag(db, busCtx.RouteNumber, busCtx.SequenceNumber, actualTime)
+				state.PlanDeparture = dep
+				state.PlanArrival = arr
+				log.Printf("[DEBUG] Ретроспективно закреплен план: %s -> %s", state.PlanDeparture, state.PlanArrival)
 			}
 		}
 	}
