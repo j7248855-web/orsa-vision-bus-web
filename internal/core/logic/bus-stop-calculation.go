@@ -25,69 +25,58 @@ func SpeedCalculation(p1, p2 []float64, duration time.Duration) float64 {
 
 // Принимаем текущую позицию автобуса и позицию целевой остановки
 func RadiusCalculation(busPos, stopPos []float64, radius float64) bool {
-	dLon := busPos[0] - stopPos[0]
-	dLat := busPos[1] - stopPos[1]
-	radian := busPos[1] * math.Pi / 180
+	busLat := busPos[0]
+	busLon := busPos[1]
+	stopLat := stopPos[0]
+	stopLon := stopPos[1]
 
-	dFb := dLat * 111111.0
-	dAb := (dLon * 111111.0) * math.Cos(radian)
-	dist := math.Sqrt(math.Pow(dFb, 2) + math.Pow(dAb, 2))
+	radian := busLat * math.Pi / 180.0
+	deltaLat := busLat - stopLat
+	deltaLon := busLon - stopLon
 
-	return dist <= radius
+	Y := deltaLat * 111111.0
+	X := deltaLon * 111111.0 * math.Cos(radian)
+	distance := math.Sqrt(math.Pow(X, 2) + math.Pow(Y, 2))
+
+	return distance <= radius
 }
 
 func CalculateStopStation(d *models.Dependence, busPos []float64, lastBusPos []float64, timeDiff time.Duration, stopPos []float64, stopRadius float64, actualTime time.Time, busCourse float64, stopAzimuth float64) *models.StopEvent {
-	//Вычисление направления азимута остановки и автобуса (смотрят ли они в одну сторону)
 	angleDiff := math.Mod(math.Abs(busCourse-stopAzimuth), 360)
 	if angleDiff > 180 {
 		angleDiff = 360 - angleDiff
 	}
-	//Если больше 90 то не в нашу сторону едет
 	if angleDiff > 90 {
 		return nil
-	}
-	var speed float64
-	if timeDiff <= 0 {
-		speed = 25.0 // Фейковая ходовая скорость
-	} else {
-		speed = SpeedCalculation(lastBusPos, busPos, timeDiff)
 	}
 
 	inRadius := RadiusCalculation(busPos, stopPos, stopRadius)
 
 	if inRadius {
-		d.WasInRadius = true
-		if speed <= 7 && d.FirtsSeenOnStation.IsZero() {
+		if !d.WasInRadius {
+			d.WasInRadius = true
 			d.FirtsSeenOnStation = actualTime
 		}
-		if !d.FirtsSeenOnStation.IsZero() && speed <= 10 {
-			if actualTime.Sub(d.FirtsSeenOnStation) >= 10*time.Second {
-				d.IsBusStop = true
-			}
-		}
-	}
-
-	if !inRadius {
+	} else {
 		if d.WasInRadius {
-			if d.IsBusStop {
-				duration := actualTime.Sub(d.FirtsSeenOnStation)
-				event := &models.StopEvent{
+			duration := actualTime.Sub(d.FirtsSeenOnStation)
+			var event *models.StopEvent
+
+			if duration >= 15*time.Second {
+				event = &models.StopEvent{
 					ActualTime:   actualTime,
 					IsSkipped:    false,
 					StayDuration: duration,
 				}
-				d.FirtsSeenOnStation = time.Time{}
-				d.IsBusStop = false
-				d.WasInRadius = false
-				return event
+			} else {
+				event = &models.StopEvent{
+					ActualTime:   actualTime,
+					IsSkipped:    true,
+					StayDuration: 0,
+				}
 			}
-			event := &models.StopEvent{
-				ActualTime:   actualTime,
-				IsSkipped:    true, // Фиксируем пропуск
-				StayDuration: 0,
-			}
+
 			d.FirtsSeenOnStation = time.Time{}
-			d.IsBusStop = false
 			d.WasInRadius = false
 			return event
 		}

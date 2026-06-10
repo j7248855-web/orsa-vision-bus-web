@@ -1,6 +1,7 @@
 package logic
 
 import (
+	"fmt"
 	"log"
 	"orsavisionweb/internal/models"
 	"time"
@@ -9,33 +10,38 @@ import (
 )
 
 func LogStopEvent(db *sqlx.DB, busCtx *models.BusContext, stop models.Stop, event *models.StopEvent) {
-
 	var info struct {
 		BusNumber   string `db:"bus_number"`
 		RouteNumber string `db:"route_number"`
 	}
-	err := db.Get(&info, "SELECT route_number, route_number as bus_number FROM buses WHERE id=$1", busCtx.BusID)
+
+	err := db.Get(&info, "SELECT route_number, bus_number FROM buses WHERE id=$1", busCtx.BusID)
 	if err != nil {
 		log.Printf("Ошибка получения инфо о автобусе из БД: %v. Используем данные из контекста.", err)
 		info.RouteNumber = busCtx.RouteNumber
 		info.BusNumber = busCtx.BusNumber
 	}
-	var delayMinutes int
 
+	var delayMinutes int
 	statusStr := "visited"
-	stayStr := event.StayDuration.Round(time.Second).String()
+
+	duration := event.StayDuration.Round(time.Second)
+	hours := int(duration.Hours())
+	minutes := int(duration.Minutes()) % 60
+	seconds := int(duration.Seconds()) % 60
+	stayStr := fmt.Sprintf("%02d:%02d:%02d", hours, minutes, seconds)
 
 	if event.IsSkipped {
 		statusStr = "skipped"
-		stayStr = "0s"
+		stayStr = "00:00:00"
 	}
 
 	query := `
-        INSERT INTO stop_reports (
-            city_name, report_date, route_number, trip_number, 
-            bus_gov_number, stop_name, planned_time, actual_time, 
-            stay_duration, delay_minutes, status, created_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`
+		INSERT INTO stop_reports (
+			city_name, report_date, route_number, trip_number, 
+			bus_gov_number, stop_name, planned_time, actual_time, 
+			stay_duration, delay_minutes, status, created_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`
 
 	res, err := db.Exec(query,
 		stop.City,
