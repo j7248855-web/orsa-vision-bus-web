@@ -119,12 +119,10 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 	loc := GetLocationByCity(busCtx.City)
 	actualTime = actualTime.In(loc)
 
-	// Ищем активную конечную остановку, в радиусе которой находится автобус
 	var activeFinalStop *models.Stop = nil
 	for i := range busCtx.Stop {
 		if busCtx.Stop[i].Type == "final" {
 			dist := CalculateDistance(currentPoint[0], currentPoint[1], busCtx.Stop[i].Lat, busCtx.Stop[i].Lon)
-
 			if dist <= float64(busCtx.Stop[i].Radius) {
 				activeFinalStop = &busCtx.Stop[i]
 				break
@@ -135,9 +133,8 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 	if activeFinalStop != nil {
 		// АВТОБУС НА КОНЕЧНОЙ
 		if state.TripStatus == "in_trip" {
-			// Проверяем, действительно ли он сменил конечную, чтобы исключить ложные триггеры
 			if state.CurrentStartStopID == activeFinalStop.ID {
-				log.Printf("[REJECT] Отчет НЕ записан. Автобус на той же конечной, откуда стартовал (ID: %d). Ждем смены направления.", activeFinalStop.ID)
+				log.Printf("[REJECT] Автобус на той же конечной, откуда стартовал (ID: %d). Ждем выезда.", activeFinalStop.ID)
 				return
 			}
 
@@ -151,13 +148,33 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 				}
 			}
 
+			// Вычисляем фактическую длительность рейса
 			duration := actualTime.Sub(state.ActualDeparture)
+
+			// ЗАЩИТА ОТ КОРЯВОЙ ИНИЦИАЛИЗАЦИИ: если рейс длился меньше 5 минут,
+			// значит мы подхватили автобус "из никуда" перед самым финишем.
+			// В таком случае считаем длительность от планового времени старта.
+			if duration < 5*time.Minute && state.PlanDeparture != "" {
+				parsedDepStr, err := time.Parse("15:04:05", state.PlanDeparture)
+				if err == nil {
+					planDepTime := time.Date(
+						actualTime.Year(), actualTime.Month(), actualTime.Day(),
+						parsedDepStr.Hour(), parsedDepStr.Minute(), parsedDepStr.Second(), 0,
+						loc,
+					)
+					if actualTime.After(planDepTime) {
+						duration = actualTime.Sub(planDepTime)
+					}
+				}
+			}
+
 			diffMinutes := int(duration.Minutes())
 			if diffMinutes < 0 {
 				diffMinutes = 0
 			}
 			durationFactStr := fmt.Sprintf("%d мин", diffMinutes)
 
+			// Считаем отклонение от графика (задержка или опережение)
 			delayMinutes := 0
 			if state.PlanArrival != "" {
 				parsedPlanStr, err := time.Parse("15:04:05", state.PlanArrival)
@@ -165,11 +182,10 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 					planTime := time.Date(
 						actualTime.Year(), actualTime.Month(), actualTime.Day(),
 						parsedPlanStr.Hour(), parsedPlanStr.Minute(), parsedPlanStr.Second(), 0,
-						actualTime.Location(),
+						loc,
 					)
-					if actualTime.After(planTime) {
-						delayMinutes = int(actualTime.Sub(planTime).Minutes())
-					}
+					// Считаем чистую разницу в минутах (может быть отрицательной, если приехал раньше)
+					delayMinutes = int(actualTime.Sub(planTime).Minutes())
 				}
 			}
 
@@ -185,8 +201,7 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 					duration_fact, delay_minutes, status, created_at
 				) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`
 
-			log.Printf("[DEBUG] Попытка INSERT оперативного отчета. План финиша: %v, Факт: %s", safePlannedTime, actualTime.Format("15:04:05"))
-
+			// В created_at шлем строго текущее время сервера time.Now(), чтобы не ломать таймзоны в БД
 			_, err := db.Exec(query,
 				busCtx.City,
 				actualTime.Format("2006-01-02"),
@@ -200,20 +215,18 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 				durationFactStr,
 				delayMinutes,
 				"completed",
-				actualTime,
+				time.Now(),
 			)
 			if err != nil {
 				log.Println("[DATABASE ERROR] Ошибка записи в trip_reports:", err)
 			} else {
-				log.Printf("[SUCCESS] ОПЕРАТИВНЫЙ ОТЧЕТ УСПЕШНО ЗАПИСАН! Автобус: %s, Из: %s -> В: %s, План: %v, Факт: %s",
-					busCtx.BusNumber, fromStopName, activeFinalStop.Name, safePlannedTime, actualTime.Format("15:04:05"))
+				log.Printf("[SUCCESS] РЕЙС ЗАФИКСИРОВАН! Автобус: %s, %s -> %s, Длительность: %s, Отклонение: %d мин",
+					busCtx.BusNumber, fromStopName, activeFinalStop.Name, durationFactStr, delayMinutes)
 			}
 
 			state.TripStatus = "idle"
 			state.CurrentStartStopID = activeFinalStop.ID
-
 		} else {
-			// Если статус idle или пустой — автобус просто стоит на конечной
 			state.TripStatus = "idle"
 			state.CurrentStartStopID = activeFinalStop.ID
 		}
@@ -227,24 +240,18 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 
 			state.TripStatus = "in_trip"
 			state.ActualDeparture = actualTime
-			log.Printf("[DEBUG] ТРИГГЕР СТАРТА: Автобус %s выехал с конечной ID %d в %s",
-				busCtx.BusNumber, state.CurrentStartStopID, actualTime.Format("15:04:05"))
 
 			dep, arr := SliceScheduleZigZag(db, busCtx.RouteNumber, busCtx.SequenceNumber, actualTime)
 			state.PlanDeparture = dep
 			state.PlanArrival = arr
-			log.Printf("[DEBUG] Закреплено плановое время точки прибытия по зигзагу: %s -> %s", state.PlanDeparture, state.PlanArrival)
+			log.Printf("[DEBUG] Выезд с конечной ID %d. План рейса: %s -> %s", state.CurrentStartStopID, dep, arr)
 		}
 
-		// ИСПРАВЛЕННАЯ РЕТРОСПЕКТИВНАЯ ИНИЦИАЛИЗАЦИЯ (Старт из "никуда")
 		if state.TripStatus == "" {
-			log.Printf("[DEBUG] Инициализация из никуда. Автобус %s, время %s...", busCtx.BusNumber, actualTime.Format("15:04:05"))
-
 			dep, arr := SliceScheduleZigZag(db, busCtx.RouteNumber, busCtx.SequenceNumber, actualTime)
 			state.PlanDeparture = dep
 			state.PlanArrival = arr
 
-			// Ищем БЛИЖАЙШУЮ конечную — это точка, КУДА он едет (цель финиша)
 			minDist := 99999999.0
 			targetFinalStopID := 0
 			for i := range busCtx.Stop {
@@ -257,7 +264,6 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 				}
 			}
 
-			// Находим противоположную конечную (откуда он выехал)
 			sourceStopID := 0
 			for _, s := range busCtx.Stop {
 				if s.Type == "final" && s.ID != targetFinalStopID {
@@ -266,7 +272,6 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 				}
 			}
 
-			// ЕслиsourceStopID не нашли (в массиве всего 1 конечная), берем target
 			if sourceStopID == 0 {
 				sourceStopID = targetFinalStopID
 			}
@@ -274,9 +279,8 @@ func ProcessTripState(db *sqlx.DB, busCtx *models.BusContext, currentPoint []flo
 			state.CurrentStartStopID = sourceStopID
 			state.TripStatus = "in_trip"
 			state.ActualDeparture = actualTime
-
-			log.Printf("[DEBUG] Ретроспективно определено направление: Из ID %d -> В ID %d. План зигзага: %s -> %s",
-				state.CurrentStartStopID, targetFinalStopID, state.PlanDeparture, state.PlanArrival)
+			log.Printf("[DEBUG] Ретростарт. Направление: Из ID %d -> В ID %d. План: %s -> %s",
+				sourceStopID, targetFinalStopID, dep, arr)
 		}
 	}
 }
